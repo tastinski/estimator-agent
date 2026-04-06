@@ -1,0 +1,22 @@
+[
+  {"category": "bathroom-remodel", "data": "Bathroom remodel costs $3,000 to $25,000 average $10,000. Full gut renovation $15,000-$25,000. Partial update $3,000-$7,000. Tile work $800-$3,000. Vanity install $300-$600. Toilet install $150-$300. Shower installation $1,000-$5,000."},
+  {"category": "kitchen-remodel", "data": "Kitchen remodel costs $5,000 to $50,000 average $20,000. Cabinet replacement $3,000-$15,000. Countertop install $1,500-$5,000. Appliance install $200-$500 each. Backsplash $600-$2,000. Flooring $1,500-$4,000."},
+  {"category": "tile-installation", "data": "Tile installation costs $7-$25 per sq ft including labor and materials. Bathroom floor tile $800-$2,000. Shower tile $1,000-$3,500. Kitchen backsplash $400-$1,200. Large format tile adds 20% to cost."},
+  {"category": "flooring", "data": "Flooring installation $3-$12 per sq ft labor. Hardwood $6-$12/sqft. Laminate $3-$7/sqft. Vinyl plank $2-$5/sqft. Carpet $3-$6/sqft. 1000 sqft average job $3,000-$8,000."},
+  {"category": "painting", "data": "Interior painting $2-$6 per sq ft. Single room $200-$800. Whole house $2,000-$8,000. Exterior painting $1,500-$6,000. Ceiling painting $100-$300 per room. Cabinet painting $600-$2,000."},
+  {"category": "plumbing", "data": "Plumber costs $75-$150 per hour. Toilet install $150-$300. Faucet install $100-$250. Water heater install $800-$1,500. Pipe repair $200-$800. Drain cleaning $150-$400."},
+  {"category": "electrical", "data": "Electrician costs $80-$150 per hour. Outlet install $100-$200. Light fixture install $100-$300. Panel upgrade $1,000-$3,000. Ceiling fan install $150-$350. EV charger install $500-$1,200."},
+  {"category": "drywall", "data": "Drywall repair $200-$750. Small hole patch $100-$200. Water damage repair $300-$800. Full room drywall $900-$2,500. Texture matching $200-$500. Drywall install $1.50-$3 per sq ft."},
+  {"category": "roofing", "data": "Roof repair $300-$1,500. Shingle replacement $150-$400 per square. Full roof replacement $5,000-$15,000. Roof inspection $150-$300. Gutter repair $150-$500. Flat roof repair $400-$1,500."},
+  {"category": "deck-building", "data": "Deck building costs $15-$35 per sq ft. 200 sq ft deck $3,000-$7,000. Composite decking adds 30%. Deck repair $500-$2,500. Railing install $800-$2,000. Deck staining $500-$1,500."},
+  {"category": "fence-installation", "data": "Fence installation $15-$40 per linear foot. Wood fence $1,500-$4,000. Vinyl fence $2,000-$5,000. Chain link $800-$2,500. Gate install $300-$800. Fence repair $150-$500."},
+  {"category": "window-installation", "data": "Window installation $300-$800 per window including labor. Bay window $1,000-$3,000. Window replacement $200-$500 labor per window. Egress window $1,500-$3,000. Storm window $150-$400."},
+  {"category": "door-installation", "data": "Door installation $200-$500 labor. Exterior door $500-$2,000 installed. Interior door $150-$400 installed. French doors $1,500-$4,000. Sliding door $800-$2,500. Door repair $100-$300."},
+  {"category": "hvac", "data": "HVAC service $75-$150 per hour. AC unit install $3,000-$7,000. Furnace install $2,500-$6,000. Duct cleaning $300-$700. Thermostat install $100-$300. HVAC tune-up $75-$200."},
+  {"category": "handyman", "data": "Handyman costs $60-$125 per hour. Minimum charge $100-$150. Half day rate $200-$400. Full day rate $350-$700. Small repairs $100-$300. Assembly services $100-$300."},
+  {"category": "carpentry", "data": "Carpenter costs $70-$150 per hour. Trim install $500-$2,000. Crown molding $800-$2,500. Built-in shelving $500-$2,500. Cabinet repair $200-$600. Stair repair $300-$1,000."},
+  {"category": "concrete", "data": "Concrete work $4-$8 per sq ft. Driveway $1,500-$5,000. Patio $800-$3,500. Sidewalk $500-$2,000. Concrete repair $200-$800. Stamped concrete adds 50-100%."},
+  {"category": "landscaping", "data": "Landscaping $50-$100 per hour. Lawn mowing $30-$80. Tree trimming $200-$800. Mulching $100-$300. Garden design $500-$3,000. Sprinkler install $1,500-$3,500."},
+  {"category": "pressure-washing", "data": "Pressure washing $150-$500. House exterior $200-$600. Driveway $100-$250. Deck cleaning $150-$400. Fence washing $100-$300. Roof cleaning $300-$600."},
+  {"category": "gutter-cleaning", "data": "Gutter cleaning $100-$225. Single story $100-$150. Two story $150-$225. Gutter repair $150-$400. Gutter installation $4-$12 per linear foot. Gutter guard install $600-$2,400."}
+]
