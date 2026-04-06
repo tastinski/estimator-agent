@@ -1,64 +1,65 @@
 import os
+import re
 from anthropic import Anthropic
 from dotenv import load_dotenv
 from rag import search_prices, init_database
+from integrations import upload_to_dropbox, send_estimate_email, create_monday_cards
+from pdf_generator import generate_pdf
 
 load_dotenv()
 
-client = Anthropic(api_key=os.getenv("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"))
-
-# История разговоров по каждому пользователю
+client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
-
 init_database()
+
+def extract_estimate_data(text: str) -> dict:
+    """Парсит текст estimate и достаёт данные"""
+    data = {}
+    patterns = {
+        "client_name": r"CLIENT:\s*(.+)",
+        "job_type": r"JOB:\s*(.+)",
+        "location": r"LOCATION:\s*(.+)",
+        "total": r"TOTAL ESTIMATE:\s*\$?([\d,]+)",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            data[key] = match.group(1).strip()
+    return data
 
 async def process_request(user_id: int, user_message: str) -> str:
     try:
-        # Инициализируем историю если новый пользователь
         if user_id not in conversations:
             conversations[user_id] = []
 
-        # Добавляем сообщение пользователя в историю
         conversations[user_id].append({
             "role": "user",
             "content": user_message
         })
 
-        # Ищем цены в RAG
         prices = search_prices(user_message)
 
         system_prompt = f"""You are a professional estimator for a handyman business in the USA.
-
 Your job is to create ACCURATE estimates. To do this:
-
 STEP 1 - If the request is vague, ask 2-3 specific clarifying questions:
 - Size of the area (sq ft)?
 - Scope of work (partial or full)?
 - Materials preference (budget / mid-range / premium)?
 - Any special conditions (floor, access, moving plumbing)?
-
 STEP 2 - Once you have enough details, create a precise estimate.
-
 Use these real market prices:
 {prices}
-
-When ready to estimate, use this format:
-
-CLIENT: [name]
+When ready to estimate, use this format EXACTLY:
+CLIENT: [full name]
 JOB: [job type]
-LOCATION: [location]
-
+LOCATION: [city, state]
 BREAKDOWN:
 - [item 1]: $[price]
 - [item 2]: $[price]
-- [item 3]: $[price]
-
 TOTAL ESTIMATE: $[amount]
 TIMELINE: [days]
-
 NOTES: [important notes]
-
-IMPORTANT: 
+IMPORTANT:
 - If not enough info → ask questions first
 - If enough info → give estimate directly
 - Be specific, not wide ranges
@@ -73,11 +74,25 @@ IMPORTANT:
 
         assistant_message = response.content[0].text
 
-        # Сохраняем ответ агента в историю
         conversations[user_id].append({
             "role": "assistant",
             "content": assistant_message
         })
+
+        # Если estimate готов — запускаем пайплайн
+        if "TOTAL ESTIMATE:" in assistant_message:
+            data = extract_estimate_data(assistant_message)
+            client_name = data.get("client_name", "Client")
+            job_type = data.get("job_type", "Job")
+            total = data.get("total", "0")
+
+            try:
+                pdf_path = generate_pdf(assistant_message, client_name, job_type)
+                dropbox_url = upload_to_dropbox(pdf_path, client_name, job_type)
+                create_monday_cards(client_name, job_type, total, dropbox_url)
+                assistant_message += f"\n\n✅ PDF создан\n📁 Dropbox: {dropbox_url}\n📋 Monday карточка создана"
+            except Exception as e:
+                assistant_message += f"\n\n⚠️ Пайплайн ошибка: {str(e)}"
 
         return assistant_message
 
