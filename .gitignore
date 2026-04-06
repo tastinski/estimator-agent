@@ -3,3 +3,6 @@ __pycache__/
 .env
 chroma_db/
 *.pyc
+venv/
+__pycache__/
+*.so
