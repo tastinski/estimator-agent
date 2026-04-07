@@ -56,5 +56,4 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", 8080)),
         webhook_url=WEBHOOK_URL,
         url_path=os.getenv("TELEGRAM_TOKEN"),
-        url_path=os.getenv("TELEGRAM_TOKEN"),
     )
