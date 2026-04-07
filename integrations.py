@@ -104,9 +104,9 @@ def create_monday_cards(client_name: str, job_type: str, estimate_total: str, dr
 
         # Contacts board
         col_contacts = json.dumps({
-            "email__1": {"email": client_email, "text": client_email} if client_email else {},
-            "phone__1": {"phone": client_phone, "countryShortName": "US"} if client_phone else {},
-            "text__1": location,
+            "email": {"email": client_email, "text": client_email} if client_email else {},
+            "phone": {"phone": client_phone, "countryShortName": "US"} if client_phone else {},
+            "location__1": location,
         })
         query2 = f"""mutation {{
             create_item (
