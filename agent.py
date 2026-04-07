@@ -13,7 +13,7 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
 init_database()
 
-def extract_estimate_data(text: str) -> dict:
+def extract_estimate_data(text):
     data = {}
     patterns = {
         "client_name": r"CLIENT:\s*(.+)",
@@ -29,7 +29,7 @@ def extract_estimate_data(text: str) -> dict:
             data[key] = match.group(1).strip()
     return data
 
-async def run_pipeline(assistant_message: str) -> str:
+async def run_pipeline(assistant_message):
     data = extract_estimate_data(assistant_message)
     client_name = data.get("client_name", "Client")
     job_type = data.get("job_type", "Job")
@@ -45,85 +45,55 @@ async def run_pipeline(assistant_message: str) -> str:
     except Exception as e:
         return f"\n\n⚠️ Пайплайн ошибка: {str(e)}"
 
-async def process_request(user_id: int, user_message: str) -> str:
+async def process_request(user_id, user_message):
     try:
         if user_id not in conversations:
             conversations[user_id] = []
-
         conversations[user_id].append({"role": "user", "content": user_message})
         prices = search_prices(user_message)
-
-        system_prompt = f"""You are a professional estimator assistant for Edem's handyman business in the USA.
-The system automatically handles Dropbox, Monday.com, and email after you provide the estimate.
-Your ONLY job is to collect info and create accurate estimates.
-
-STEP 1 - Collect required info:
-- Client full name
-- Phone number
-- Email (if available)
-- Job type and description
-- Location (city, state)
-- Size/scope of work
-- Materials preference (budget/mid-range/premium)
-
-STEP 2 - When you have enough info, output estimate in this EXACT format:
+        system_prompt = f"""You are a professional estimator for Edem handyman business USA.
+System automatically handles Dropbox, Monday.com, email. Never say you cannot access them.
+Collect: client name, phone, email, job type, location, scope, materials.
+When ready use EXACT format:
 CLIENT: [full name]
 PHONE: [phone]
 EMAIL: [email or N/A]
 JOB: [job type]
 LOCATION: [city, state]
 BREAKDOWN:
-- [item 1]: $[price]
-- [item 2]: $[price]
+- [item]: $[price]
 TOTAL ESTIMATE: $[amount]
 TIMELINE: [days]
 NOTES: [notes]
-
-Market prices:
-{prices}
-
-NEVER say you cannot access Dropbox or Monday — the system handles that automatically."""
-
+Market prices: {prices}"""
         response = client.messages.create(
             model="claude-opus-4-6",
             max_tokens=1000,
             system=system_prompt,
             messages=conversations[user_id]
         )
-
         assistant_message = response.content[0].text
         conversations[user_id].append({"role": "assistant", "content": assistant_message})
-
         if "TOTAL ESTIMATE:" in assistant_message:
             pipeline_result = await run_pipeline(assistant_message)
             assistant_message += pipeline_result
-
         return assistant_message
-
     except Exception as e:
         return f"❌ Ошибка: {str(e)}"
 
-async def process_photo(user_id: int, image_data: bytes, caption: str = "") -> str:
+async def process_photo(user_id, image_data, caption=""):
     try:
         image_b64 = base64.standard_b64encode(image_data).decode("utf-8")
-
         if user_id not in conversations:
             conversations[user_id] = []
-
         message_content = []
         if caption:
             message_content.append({"type": "text", "text": caption})
-        message_content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}
-        })
-
+        message_content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}})
         conversations[user_id].append({"role": "user", "content": message_content})
         prices = search_prices(caption or "general handyman work")
-
-        system_prompt = f"""You are a professional estimator for Edem's handyman business in the USA.
-The client sent a photo. Analyze it and collect all needed info.
-When ready use EXACT format:
+        system_prompt = f"""You are a professional estimator for Edem handyman business USA.
+Analyze the photo. Collect all info and use EXACT format:
 CLIENT: [name]
 PHONE: [phone]
 EMAIL: [email or N/A]
@@ -134,29 +104,23 @@ BREAKDOWN:
 TOTAL ESTIMATE: $[amount]
 TIMELINE: [days]
 NOTES: [notes]
-
 Market prices: {prices}"""
-
         response = client.messages.create(
             model="claude-opus-4-6",
             max_tokens=1000,
             system=system_prompt,
             messages=conversations[user_id]
         )
-
         assistant_message = response.content[0].text
         conversations[user_id].append({"role": "assistant", "content": assistant_message})
-
         if "TOTAL ESTIMATE:" in assistant_message:
             pipeline_result = await run_pipeline(assistant_message)
             assistant_message += pipeline_result
-
         return assistant_message
-
     except Exception as e:
         return f"❌ Ошибка: {str(e)}"
 
-def clear_conversation(user_id: int):
+def clear_conversation(user_id):
     if user_id in conversations:
         del conversations[user_id]
     return "🔄 Разговор сброшен. Начнём заново!"
