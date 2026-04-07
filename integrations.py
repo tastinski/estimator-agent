@@ -62,7 +62,6 @@ def send_estimate_email(client_email, client_name, job_type, estimate_text, pdf_
             subject=f"Your Estimate — {job_type}",
             html_content=f"<p>Hi {client_name},</p><p>Please find your estimate attached.</p><p><a href='{dropbox_url}'>View in Dropbox</a></p>"
         )
-        from sendgrid.helpers.mail import Attachment, FileContent, FileName, FileType, Disposition
         attachment = Attachment(
             FileContent(pdf_data),
             FileName(f"estimate_{client_name.replace(' ', '_')}.pdf"),
@@ -83,49 +82,53 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
             "Content-Type": "application/json"
         }
 
-        # Карточка 1 — Aydin Main 2026 (Fast projects Estimate)
-        col_main = json.dumps({
+        # Aydin Main 2026 — Fast projects Estimate
+        # phone__1=Phone, email__1=Email, text6__1=Job description, link__1=Link, location__1=Location
+        col_main = {
             "phone__1": {"phone": client_phone, "countryShortName": "US"} if client_phone else {},
             "email__1": {"email": client_email, "text": client_email} if client_email else {},
             "text6__1": job_type,
             "link__1": {"url": dropbox_url, "text": "Estimate PDF"} if dropbox_url else {},
             "location__1": location,
-        })
-        query1 = f"""mutation {{
-            create_item (
-                board_id: {MONDAY_MAIN_BOARD},
-                group_id: "group_mm0ea2gw",
-                item_name: "{client_name}",
-                column_values: {json.dumps(col_main)}
-            ) {{ id }}
-        }}"""
-        r1 = requests.post("https://api.monday.com/v2", headers=headers, json={"query": query1})
+        }
+        query1 = """mutation ($board: ID!, $group: String!, $name: String!, $cols: JSON!) {
+            create_item(board_id: $board, group_id: $group, item_name: $name, column_values: $cols) { id }
+        }"""
+        vars1 = {
+            "board": MONDAY_MAIN_BOARD,
+            "group": "group_mm0ea2gw",
+            "name": client_name,
+            "cols": json.dumps(col_main)
+        }
+        r1 = requests.post("https://api.monday.com/v2", headers=headers, json={"query": query1, "variables": vars1})
         data1 = r1.json()
         if "errors" in data1:
             print(f"❌ Monday Main: {data1['errors']}")
         else:
-            print(f"✅ Fast projects Estimate карточка создана")
+            print(f"✅ Fast projects Estimate карточка создана: {data1}")
 
-        # Карточка 2 — Contacts
-        col_contacts = json.dumps({
+        # Contacts board
+        # phone=Phone, email=Email, location__1=Location, text4=Notes
+        col_contacts = {
             "phone": {"phone": client_phone, "countryShortName": "US"} if client_phone else {},
             "email": {"email": client_email, "text": client_email} if client_email else {},
             "location__1": location,
             "text4": job_type,
-        })
-        query2 = f"""mutation {{
-            create_item (
-                board_id: {MONDAY_CONTACTS_BOARD},
-                item_name: "{client_name}",
-                column_values: {json.dumps(col_contacts)}
-            ) {{ id }}
-        }}"""
-        r2 = requests.post("https://api.monday.com/v2", headers=headers, json={"query": query2})
+        }
+        query2 = """mutation ($board: ID!, $name: String!, $cols: JSON!) {
+            create_item(board_id: $board, item_name: $name, column_values: $cols) { id }
+        }"""
+        vars2 = {
+            "board": MONDAY_CONTACTS_BOARD,
+            "name": client_name,
+            "cols": json.dumps(col_contacts)
+        }
+        r2 = requests.post("https://api.monday.com/v2", headers=headers, json={"query": query2, "variables": vars2})
         data2 = r2.json()
         if "errors" in data2:
             print(f"❌ Monday Contacts: {data2['errors']}")
         else:
-            print(f"✅ Contacts карточка создана")
+            print(f"✅ Contacts карточка создана: {data2}")
 
         return True
     except Exception as e:
