@@ -96,7 +96,7 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
         }"""
         vars1 = {
             "board": MONDAY_MAIN_BOARD,
-            "group": "group_mm0ea2gw",
+            "group": "new_group__1",
             "name": client_name,
             "cols": json.dumps(col_main)
         }
