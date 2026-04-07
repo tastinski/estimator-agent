@@ -26,7 +26,7 @@ def extract_estimate_data(text):
     for key, pattern in patterns.items():
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            data[key] = match.group(1).strip()
+            data[key] = match.group(1).strip().lstrip("*").strip()
     return data
 
 async def run_pipeline(assistant_message):
