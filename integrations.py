@@ -105,9 +105,9 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
         r1 = requests.post("https://api.monday.com/v2", headers=headers, json={"query": query1, "variables": vars1})
         data1 = r1.json()
         if "errors" in data1:
-            print(f"❌ Monday Main: {data1['errors']}")
+            return f"MAIN_ERROR: {data1['errors']}"
         else:
-            print(f"✅ Fast projects Estimate карточка создана: {data1}")
+            main_id = data1.get('data', {}).get('create_item', {}).get('id', 'NO_ID')
 
         # Contacts board
         # phone=Phone, email=Email, location__1=Location, text4=Notes
@@ -128,11 +128,11 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
         r2 = requests.post("https://api.monday.com/v2", headers=headers, json={"query": query2, "variables": vars2})
         data2 = r2.json()
         if "errors" in data2:
-            print(f"❌ Monday Contacts: {data2['errors']}")
+            return f"CONTACTS_ERROR: {data2['errors']}"
         else:
-            print(f"✅ Contacts карточка создана: {data2}")
+            contacts_id = data2.get('data', {}).get('create_item', {}).get('id', 'NO_ID')
 
-        return True
+        return f"OK: main={main_id} contacts={contacts_id}"
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         return False
