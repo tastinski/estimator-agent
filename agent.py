@@ -40,8 +40,8 @@ async def run_pipeline(assistant_message):
     try:
         pdf_path = generate_pdf(assistant_message, client_name, job_type)
         dropbox_url = upload_to_dropbox(pdf_path, client_name, job_type)
-        create_monday_cards(client_name, job_type, total, dropbox_url, email, phone, location)
-        return f"\n\n✅ PDF создан\n📁 Dropbox: {dropbox_url}\n📋 Карточки в Monday созданы (Estimates + Contacts)"
+        monday_result = create_monday_cards(client_name, job_type, total, dropbox_url, email, phone, location)
+        return f"\n\n✅ PDF создан\n📁 Dropbox: {dropbox_url}\n📋 Monday: {monday_result}\nData: name={client_name} phone={phone} location={location}"
     except Exception as e:
         return f"\n\n⚠️ Пайплайн ошибка: {str(e)}"
 
