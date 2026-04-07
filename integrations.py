@@ -11,7 +11,9 @@ from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileT
 
 load_dotenv()
 
-DROPBOX_TOKEN = os.getenv("DROPBOX_TOKEN")
+DROPBOX_APP_KEY = os.getenv("DROPBOX_APP_KEY")
+DROPBOX_APP_SECRET = os.getenv("DROPBOX_APP_SECRET")
+DROPBOX_REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL")
 MONDAY_API_KEY = os.getenv("MONDAY_API_KEY")
@@ -32,7 +34,7 @@ def get_folder_name(dbx, client_name):
 
 def upload_to_dropbox(pdf_path, client_name, job_type):
     try:
-        dbx = dropbox.Dropbox(DROPBOX_TOKEN)
+        dbx = dropbox.Dropbox(oauth2_refresh_token=DROPBOX_REFRESH_TOKEN, app_key=DROPBOX_APP_KEY, app_secret=DROPBOX_APP_SECRET)
         folder_name = get_folder_name(dbx, client_name)
         dropbox_folder = f"{DROPBOX_ROOT}/{folder_name}"
         pdf_name = f"{folder_name} estimate.pdf"
