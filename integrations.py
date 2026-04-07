@@ -34,7 +34,11 @@ def get_folder_name(dbx, client_name):
 
 def upload_to_dropbox(pdf_path, client_name, job_type):
     try:
-        dbx = dropbox.Dropbox(oauth2_refresh_token=DROPBOX_REFRESH_TOKEN, app_key=DROPBOX_APP_KEY, app_secret=DROPBOX_APP_SECRET)
+        dbx = dropbox.Dropbox(
+            oauth2_refresh_token=os.getenv("DROPBOX_REFRESH_TOKEN"),
+            app_key=os.getenv("DROPBOX_APP_KEY"),
+            app_secret=os.getenv("DROPBOX_APP_SECRET")
+        )
         folder_name = get_folder_name(dbx, client_name)
         dropbox_folder = f"{DROPBOX_ROOT}/{folder_name}"
         pdf_name = f"{folder_name} estimate.pdf"
