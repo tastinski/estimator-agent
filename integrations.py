@@ -88,7 +88,7 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
         # phone__1=Phone, email__1=Email, text6__1=Job description, link__1=Link, location__1=Location
         col_main = {
             "phone__1": {"phone": client_phone.replace("(", "").replace(")", "").replace(" ", "").replace("-", ""), "countryShortName": "US"} if client_phone else {},
-            "email__1": {"email": client_email, "text": client_email} if client_email else {},
+            "email__1": {"email": client_email, "text": client_email} if client_email and client_email not in ["N/A", "n/a", ""] else {},
             "text6__1": job_type,
             "link__1": {"url": dropbox_url, "text": "Estimate PDF"} if dropbox_url else {},
             "text__1": location,
@@ -113,7 +113,7 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
         # phone=Phone, email=Email, location__1=Location, text4=Notes
         col_contacts = {
             "phone": {"phone": client_phone.replace("(", "").replace(")", "").replace(" ", "").replace("-", ""), "countryShortName": "US"} if client_phone else {},
-            "email": {"email": client_email, "text": client_email} if client_email else {},
+            "email": {"email": client_email, "text": client_email} if client_email and client_email not in ["N/A", "n/a", ""] else {},
             "text__1": location,
             "text4": job_type,
         }
