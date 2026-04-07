@@ -19,7 +19,7 @@ def extract_estimate_data(text):
         "client_name": r"CLIENT:\s*(.+)",
         "job_type": r"JOB:\s*(.+)",
         "location": r"LOCATION:\s*(.+)",
-        "total": r"TOTAL ESTIMATE:\s*\$?([\d,]+)",
+        "total": r"\*{0,2}TOTAL ESTIMATE:\*{0,2}\s*:?\s*\$?([\d,]+)",
         "phone": r"PHONE:\s*(.+)",
         "email": r"EMAIL:\s*(.+)",
     }
