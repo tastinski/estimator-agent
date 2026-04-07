@@ -89,7 +89,7 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
             "email__1": {"email": client_email, "text": client_email} if client_email else {},
             "text6__1": job_type,
             "link__1": {"url": dropbox_url, "text": "Estimate PDF"} if dropbox_url else {},
-            "location__1": location,
+            "text__1": location,
         }
         query1 = """mutation ($board: ID!, $group: String!, $name: String!, $cols: JSON!) {
             create_item(board_id: $board, group_id: $group, item_name: $name, column_values: $cols) { id }
@@ -112,7 +112,7 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
         col_contacts = {
             "phone": {"phone": client_phone, "countryShortName": "US"} if client_phone else {},
             "email": {"email": client_email, "text": client_email} if client_email else {},
-            "location__1": location,
+            "text__1": location,
             "text4": job_type,
         }
         query2 = """mutation ($board: ID!, $name: String!, $cols: JSON!) {
