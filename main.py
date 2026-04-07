@@ -7,7 +7,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # добавим в Railway
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -49,11 +48,5 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("new", new_estimate))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    
-    print("🤖 Бот запущен на webhook!")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=int(os.getenv("PORT", 8080)),
-        webhook_url=WEBHOOK_URL,
-        url_path=os.getenv("TELEGRAM_TOKEN"),
-    )
+    print("🤖 Бот запущен!")
+    app.run_polling(drop_pending_updates=True)
