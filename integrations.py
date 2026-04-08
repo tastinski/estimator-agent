@@ -41,7 +41,7 @@ def upload_to_dropbox(pdf_path, client_name, job_type):
         )
         folder_name = get_folder_name(dbx, client_name)
         dropbox_folder = f"{DROPBOX_ROOT}/{folder_name}"
-        pdf_name = f"{folder_name} estimate.pdf"
+        pdf_name = f"{folder_name} estimate.xlsx"
         dropbox_path = f"{dropbox_folder}/{pdf_name}"
         with open(pdf_path, 'rb') as f:
             dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
