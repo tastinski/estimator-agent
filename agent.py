@@ -5,7 +5,7 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 from rag import search_prices, init_database
 from integrations import upload_to_dropbox, send_estimate_email, create_monday_cards
-from pdf_generator import generate_estimate_pdf as generate_pdf
+from excel_generator import generate_estimate_excel as generate_pdf
 
 load_dotenv()
 
