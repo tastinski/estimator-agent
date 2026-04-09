@@ -1,23 +1,17 @@
 import os
 import sys
-import fcntl
 import httpx
 import threading
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from twilio_handler import app as flask_app
+import asyncio
 
 load_dotenv()
 
-lock_file = open("/tmp/estimator_bot.lock", "w")
-try:
-    fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except IOError:
-    print("Другой инстанс уже запущен. Выходим.")
-    sys.exit(0)
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+WEBHOOK_URL = "https://estimator-agent-production.up.railway.app/telegram"
 
 def run_flask():
     port = int(os.getenv("PORT", 5000))
@@ -56,12 +50,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    print("Flask запущен на порту", os.getenv("PORT", 5000))
-    
+    print("Flask запущен")
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("new", new_estimate))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    print("Бот запущен!")
-    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+    print("Бот запущен через webhook!")
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.getenv("PORT", 5000)),
+        webhook_url=WEBHOOK_URL,
+        url_path="/telegram"
+    )
