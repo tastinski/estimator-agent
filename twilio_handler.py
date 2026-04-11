@@ -42,6 +42,9 @@ def monday_webhook():
         data = request.get_json(force=True)
         print(f"Monday webhook: {data}")
         
+        if "challenge" in data:
+            return {"challenge": data["challenge"]}, 200
+        
         event = data.get("event", {})
         item_id = event.get("pulseId") or event.get("itemId")
         body = event.get("textBody", "") or event.get("body", "")
