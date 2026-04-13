@@ -103,9 +103,14 @@ async def handle_dropbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not client_name:
         await update.message.reply_text("Напиши имя клиента: /dropbox Maria Gonzalez")
         return
-    await update.message.reply_text(f"📸 Ищу фото в Dropbox для {client_name}...")
-    result = await process_dropbox_photos(user_id, client_name)
-    await update.message.reply_text(result)
+    await update.message.reply_text(f"📸 Ищу фото в Dropbox для {client_name}... Это займёт 1-2 минуты.")
+    try:
+        result = await process_dropbox_photos(user_id, client_name)
+        if len(result) > 4000:
+            result = result[:4000] + "..."
+        await update.message.reply_text(result)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from agent import process_request
