@@ -4,9 +4,10 @@ import json
 from dotenv import load_dotenv
 from flask import Flask, request, Response
 from twilio.twiml.messaging_response import MessagingResponse
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import asyncio
+import threading
 
 load_dotenv()
 
@@ -15,13 +16,13 @@ WEBHOOK_URL = "https://estimator-agent-production.up.railway.app/telegram"
 
 app = Flask(__name__)
 bot_app = None
+bot_loop = None
 
 @app.route("/sms", methods=["POST"])
 def sms_reply():
     from agent import process_request
     phone = request.form.get("From", "")
     body = request.form.get("Body", "").strip()
-    print(f"SMS from {phone}: {body}")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     result = loop.run_until_complete(process_request(phone, body))
@@ -34,14 +35,11 @@ def sms_reply():
 
 @app.route("/telegram", methods=["POST"])
 def telegram_webhook():
-    global bot_app
-    if bot_app:
+    global bot_app, bot_loop
+    if bot_app and bot_loop:
         data = request.get_json(force=True)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         update = Update.de_json(data, bot_app.bot)
-        loop.run_until_complete(bot_app.process_update(update))
-        loop.close()
+        asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
     return Response(status=200)
 
 @app.route("/health", methods=["GET"])
@@ -52,7 +50,6 @@ def health():
 def monday_webhook():
     try:
         data = request.get_json(force=True)
-        print(f"Monday webhook: {data}")
         if "challenge" in data:
             return {"challenge": data["challenge"]}, 200
         event = data.get("event", {})
@@ -77,10 +74,16 @@ def monday_webhook():
         location = cols.get("text__1", "")
         context = f"Project: {client_name}. Job: {job_type}. Location: {location}. Question: {body}"
         from agent import process_request
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        response = loop.run_until_complete(process_request(f"monday_{item_id}", context))
-        loop.close()
+        global bot_loop
+        if bot_loop:
+            future = asyncio.run_coroutine_threadsafe(
+                process_request(f"monday_{item_id}", context), bot_loop
+            )
+            response = future.result(timeout=60)
+        else:
+            loop = asyncio.new_event_loop()
+            response = loop.run_until_complete(process_request(f"monday_{item_id}", context))
+            loop.close()
         post_monday_comment(item_id, f"**AI_Assist:** {response}")
         return {"status": "ok"}, 200
     except Exception as e:
@@ -106,9 +109,9 @@ async def handle_dropbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📸 Ищу фото в Dropbox для {client_name}... Это займёт 1-2 минуты.")
     try:
         result = await process_dropbox_photos(user_id, client_name)
-        if len(result) > 4000:
-            result = result[:4000] + "..."
-        await update.message.reply_text(result)
+        chunk_size = 4000
+        for i in range(0, len(result), chunk_size):
+            await update.message.reply_text(result[i:i+chunk_size])
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
@@ -133,8 +136,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = await process_photo(user_id, image_data, caption)
     await update.message.reply_text(result)
 
-async def setup_bot():
-    global bot_app
+async def run_bot():
+    global bot_app, bot_loop
+    bot_loop = asyncio.get_event_loop()
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(CommandHandler("new", new_estimate))
@@ -146,10 +150,19 @@ async def setup_bot():
     await bot_app.start()
     print("Webhook установлен:", WEBHOOK_URL)
 
-if __name__ == "__main__":
+def start_bot_thread():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(setup_bot())
+    global bot_loop
+    bot_loop = loop
+    loop.run_until_complete(run_bot())
+    loop.run_forever()
+
+if __name__ == "__main__":
+    t = threading.Thread(target=start_bot_thread, daemon=True)
+    t.start()
+    import time
+    time.sleep(3)
     port = int(os.getenv("PORT", 8080))
     print(f"Flask запущен на порту {port}")
     app.run(host="0.0.0.0", port=port, use_reloader=False)
