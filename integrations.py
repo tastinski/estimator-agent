@@ -30,7 +30,8 @@ def upload_to_dropbox(file_path, client_name, job_type, existing_folder=None):
             app_key=DROPBOX_APP_KEY,
             app_secret=DROPBOX_APP_SECRET
         )
-if existing_folder:
+
+        if existing_folder:
             try:
                 result = dbx.files_list_folder(DROPBOX_ROOT)
                 for entry in result.entries:
@@ -49,7 +50,8 @@ if existing_folder:
                             return links.links[0].url if links.links else dropbox_path
             except Exception as e:
                 print(f"existing_folder error: {e}")
-                try:
+
+        try:
             dbx.files_get_metadata(DROPBOX_ROOT)
         except dropbox.exceptions.ApiError:
             dbx.files_create_folder_v2(DROPBOX_ROOT)
@@ -163,6 +165,7 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
         phone_clean = client_phone.replace("(","").replace(")","").replace(" ","").replace("-","") if client_phone else ""
         if phone_clean.lower() in ["na", "n/a", "unknown"]:
             phone_clean = ""
+
         col_main = {
             "phone__1": {"phone": phone_clean, "countryShortName": "US"} if phone_clean else {},
             "email__1": {"email": client_email, "text": client_email} if client_email and client_email not in ["N/A","n/a",""] else {},
