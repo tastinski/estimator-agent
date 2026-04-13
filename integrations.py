@@ -142,7 +142,8 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
     try:
         headers = {"Authorization": MONDAY_API_KEY, "Content-Type": "application/json"}
         phone_clean = client_phone.replace("(","").replace(")","").replace(" ","").replace("-","") if client_phone else ""
-
+        if phone_clean.lower() in ["na", "n/a", "unknown"]:
+            phone_clean = ""
         col_main = {
             "phone__1": {"phone": phone_clean, "countryShortName": "US"} if phone_clean else {},
             "email__1": {"email": client_email, "text": client_email} if client_email and client_email not in ["N/A","n/a",""] else {},
