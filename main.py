@@ -47,6 +47,53 @@ def telegram_webhook():
 @app.route("/health", methods=["GET"])
 def health():
     return "OK"
+@app.route("/monday_webhook", methods=["POST"])
+def monday_webhook():
+    try:
+        data = request.get_json(force=True)
+        print(f"Monday webhook: {data}")
+        
+        if "challenge" in data:
+            return {"challenge": data["challenge"]}, 200
+        
+        event = data.get("event", {})
+        item_id = event.get("pulseId") or event.get("itemId")
+        body = event.get("textBody", "") or event.get("body", "")
+        creator_name = event.get("userName", "")
+        
+        if not item_id or not body:
+            return {"status": "skip"}, 200
+        
+        if "AI_Assist" in creator_name or "ai_assist" in creator_name.lower():
+            return {"status": "skip"}, 200
+        
+        if "@AI_Assist" not in body and "@ai_assist" not in body.lower():
+            return {"status": "skip"}, 200
+        
+        from monday_webhook import post_monday_comment, get_item_details
+        item_details = get_item_details(item_id)
+        items = item_details.get("data", {}).get("items", [])
+        if not items:
+            return {"status": "item not found"}, 200
+        
+        item = items[0]
+        client_name = item.get("name", "Client")
+        cols = {c["id"]: c["text"] for c in item.get("column_values", [])}
+        job_type = cols.get("text6__1", "")
+        location = cols.get("text__1", "")
+        context = f"Project: {client_name}. Job: {job_type}. Location: {location}. Question: {body}"
+        
+        from agent import process_request
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        response = loop.run_until_complete(process_request(f"monday_{item_id}", context))
+        loop.close()
+        
+        post_monday_comment(item_id, f"**AI_Assist:** {response}")
+        return {"status": "ok"}, 200
+    except Exception as e:
+        print(f"Monday webhook error: {e}")
+        return {"status": "error"}, 500
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Я Estimator Agent.\n\nОпиши работу или скинь фото.\n\n/new — новый эстимейт")
