@@ -29,7 +29,7 @@ def extract_estimate_data(text):
             data[key] = match.group(1).strip().lstrip("*").strip()
     return data
 
-async def run_pipeline(assistant_message):
+async def run_pipeline(assistant_message, existing_client_folder=None):
     data = extract_estimate_data(assistant_message)
     client_name = data.get("client_name", "Client")
     job_type = data.get("job_type", "Job")
@@ -39,7 +39,7 @@ async def run_pipeline(assistant_message):
     location = data.get("location", "")
     try:
         pdf_path = generate_pdf(assistant_message, client_name, job_type)
-        dropbox_url = upload_to_dropbox(pdf_path, client_name, job_type)
+        dropbox_url = upload_to_dropbox(pdf_path, client_name, job_type, existing_folder=existing_client_folder)
         monday_result = create_monday_cards(client_name, job_type, total, dropbox_url, email, phone, location)
         return f"\n\n✅ Excel создан\n📁 Dropbox: {dropbox_url}\n📋 Monday: {monday_result}"
     except Exception as e:
@@ -114,7 +114,7 @@ Market prices: {prices}"""
         assistant_message = response.content[0].text
         conversations[user_id].append({"role": "assistant", "content": assistant_message})
         if "TOTAL ESTIMATE:" in assistant_message:
-            pipeline_result = await run_pipeline(assistant_message)
+            pipeline_result = await run_pipeline(assistant_message, existing_client_folder=client_name)
             assistant_message += pipeline_result
         return assistant_message
     except Exception as e:
