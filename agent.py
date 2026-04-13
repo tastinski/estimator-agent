@@ -41,7 +41,7 @@ async def run_pipeline(assistant_message):
         pdf_path = generate_pdf(assistant_message, client_name, job_type)
         dropbox_url = upload_to_dropbox(pdf_path, client_name, job_type)
         monday_result = create_monday_cards(client_name, job_type, total, dropbox_url, email, phone, location)
-        return f"\n\n✅ PDF создан\n📁 Dropbox: {dropbox_url}\n📋 Monday: {monday_result}\nData: name={client_name} phone={phone} location={location}"
+        return f"\n\n✅ Excel создан\n📁 Dropbox: {dropbox_url}\n📋 Monday: {monday_result}"
     except Exception as e:
         return f"\n\n⚠️ Пайплайн ошибка: {str(e)}"
 
@@ -51,7 +51,7 @@ async def process_request(user_id, user_message):
             conversations[user_id] = []
         conversations[user_id].append({"role": "user", "content": user_message})
         prices = search_prices(user_message)
-        system_prompt = f"""You are a professional estimator for Edem handyman business USA.
+        system_prompt = f"""You are a professional estimator for Handy Eddy handyman business USA.
 System automatically handles Dropbox, Monday.com, email. Never say you cannot access them.
 Collect: client name, phone, email, job type, location, scope, materials.
 When ready use EXACT format:
@@ -68,7 +68,7 @@ NOTES: [notes]
 Market prices: {prices}"""
         response = client.messages.create(
             model="claude-opus-4-6",
-            max_tokens=1000,
+            max_tokens=1500,
             system=system_prompt,
             messages=conversations[user_id]
         )
@@ -92,8 +92,8 @@ async def process_photo(user_id, image_data, caption=""):
         message_content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}})
         conversations[user_id].append({"role": "user", "content": message_content})
         prices = search_prices(caption or "general handyman work")
-        system_prompt = f"""You are a professional estimator for Edem handyman business USA.
-Analyze the photo. Collect all info and use EXACT format:
+        system_prompt = f"""You are a professional estimator for Handy Eddy handyman business USA.
+Analyze the photo. Use EXACT format:
 CLIENT: [name]
 PHONE: [phone]
 EMAIL: [email or N/A]
@@ -107,7 +107,7 @@ NOTES: [notes]
 Market prices: {prices}"""
         response = client.messages.create(
             model="claude-opus-4-6",
-            max_tokens=1000,
+            max_tokens=1500,
             system=system_prompt,
             messages=conversations[user_id]
         )
@@ -120,10 +120,6 @@ Market prices: {prices}"""
     except Exception as e:
         return f"❌ Ошибка: {str(e)}"
 
-def clear_conversation(user_id):
-    if user_id in conversations:
-        del conversations[user_id]
-    return "🔄 Разговор сброшен. Начнём заново!"
 async def process_dropbox_photos(user_id, client_name, caption=""):
     try:
         from integrations import get_dropbox_photos
@@ -135,10 +131,7 @@ async def process_dropbox_photos(user_id, client_name, caption=""):
             conversations[user_id] = []
 
         message_content = []
-        if caption:
-            message_content.append({"type": "text", "text": caption})
-        else:
-            message_content.append({"type": "text", "text": f"Analyze all these photos for {client_name} exterior/interior work and create a detailed estimate."})
+        message_content.append({"type": "text", "text": f"Analyze all these photos for {client_name} and create a detailed estimate."})
 
         for photo in photos:
             message_content.append({
@@ -146,33 +139,35 @@ async def process_dropbox_photos(user_id, client_name, caption=""):
                 "source": {
                     "type": "base64",
                     "media_type": "image/jpeg",
-                    "data": photo['data']
+                    "data": photo["data"]
                 }
             })
 
         conversations[user_id].append({"role": "user", "content": message_content})
-        prices = search_prices(caption or "exterior painting handyman work")
+        prices = search_prices("exterior painting handyman work")
 
-        system_prompt = f"""You are a professional estimator for Edem handyman business USA.
-Analyze ALL photos carefully. Create detailed Homewyse-style estimate with materials and labor separate.
-Use EXACT format:
+        system_prompt = f"""You are a professional estimator for Handy Eddy handyman business USA.
+Analyze ALL photos carefully. Keep response under 3000 tokens - be concise.
+Use EXACT plain text format - NO markdown tables, NO ### headers:
+
 CLIENT: {client_name}
 PHONE: N/A
 EMAIL: N/A
 JOB: [job type based on photos]
-LOCATION: [location if visible]
+LOCATION: [location if visible, otherwise Unknown]
 BREAKDOWN:
-- [Item description (materials/labor separately)]: $[price]
+- [Item materials description]: $[price]
+- [Item labor description]: $[price]
 SUBTOTAL MATERIALS: $[amount]
 SUBTOTAL LABOR: $[amount]
 TOTAL ESTIMATE: $[amount]
 TIMELINE: [days]
-NOTES: [detailed notes based on photos]
+NOTES: [brief notes based on photos]
 Market prices: {prices}"""
 
         response = client.messages.create(
             model="claude-opus-4-6",
-            max_tokens=2000,
+            max_tokens=3000,
             system=system_prompt,
             messages=conversations[user_id]
         )
@@ -186,3 +181,8 @@ Market prices: {prices}"""
         return assistant_message
     except Exception as e:
         return f"❌ Ошибка: {str(e)}"
+
+def clear_conversation(user_id):
+    if user_id in conversations:
+        del conversations[user_id]
+    return "🔄 Разговор сброшен. Начнём заново!"
