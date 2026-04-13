@@ -141,3 +141,40 @@ def create_monday_cards(client_name, job_type, estimate_total, dropbox_url, clie
         print(f"Monday error: {e}")
         traceback.print_exc()
         return False
+    def get_dropbox_photos(client_name_part):
+    try:
+        dbx = dropbox.Dropbox(
+            oauth2_refresh_token=DROPBOX_REFRESH_TOKEN,
+            app_key=DROPBOX_APP_KEY,
+            app_secret=DROPBOX_APP_SECRET
+        )
+        result = dbx.files_list_folder(DROPBOX_ROOT)
+        client_folder = None
+        for entry in result.entries:
+            if hasattr(entry, 'name') and client_name_part.lower() in entry.name.lower():
+                client_folder = entry.path_display
+                break
+        if not client_folder:
+            print(f"Папка не найдена для: {client_name_part}")
+            return []
+        photos = []
+        folder_contents = dbx.files_list_folder(client_folder)
+        for entry in folder_contents.entries:
+            if hasattr(entry, 'name') and entry.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                _, response = dbx.files_download(entry.path_display)
+                photo_data = response.content
+                import base64
+                photo_b64 = base64.standard_b64encode(photo_data).decode('utf-8')
+                photos.append({
+                    'name': entry.name,
+                    'data': photo_b64
+                })
+                print(f"Загружено фото: {entry.name}")
+                if len(photos) >= 10:
+                    break
+        print(f"Всего фото загружено: {len(photos)}")
+        return photos
+    except Exception as e:
+        print(f"Dropbox фото ошибка: {e}")
+        traceback.print_exc()
+        return []
