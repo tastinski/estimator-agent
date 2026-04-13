@@ -124,3 +124,65 @@ def clear_conversation(user_id):
     if user_id in conversations:
         del conversations[user_id]
     return "🔄 Разговор сброшен. Начнём заново!"
+async def process_dropbox_photos(user_id, client_name, caption=""):
+    try:
+        from integrations import get_dropbox_photos
+        photos = get_dropbox_photos(client_name)
+        if not photos:
+            return f"❌ Фото не найдены в Dropbox для клиента: {client_name}"
+
+        if user_id not in conversations:
+            conversations[user_id] = []
+
+        message_content = []
+        if caption:
+            message_content.append({"type": "text", "text": caption})
+        else:
+            message_content.append({"type": "text", "text": f"Analyze all these photos for {client_name} exterior/interior work and create a detailed estimate."})
+
+        for photo in photos:
+            message_content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": photo['data']
+                }
+            })
+
+        conversations[user_id].append({"role": "user", "content": message_content})
+        prices = search_prices(caption or "exterior painting handyman work")
+
+        system_prompt = f"""You are a professional estimator for Edem handyman business USA.
+Analyze ALL photos carefully. Create detailed Homewyse-style estimate with materials and labor separate.
+Use EXACT format:
+CLIENT: {client_name}
+PHONE: N/A
+EMAIL: N/A
+JOB: [job type based on photos]
+LOCATION: [location if visible]
+BREAKDOWN:
+- [Item description (materials/labor separately)]: $[price]
+SUBTOTAL MATERIALS: $[amount]
+SUBTOTAL LABOR: $[amount]
+TOTAL ESTIMATE: $[amount]
+TIMELINE: [days]
+NOTES: [detailed notes based on photos]
+Market prices: {prices}"""
+
+        response = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=2000,
+            system=system_prompt,
+            messages=conversations[user_id]
+        )
+        assistant_message = response.content[0].text
+        conversations[user_id].append({"role": "assistant", "content": assistant_message})
+
+        if "TOTAL ESTIMATE:" in assistant_message:
+            pipeline_result = await run_pipeline(assistant_message)
+            assistant_message += pipeline_result
+
+        return assistant_message
+    except Exception as e:
+        return f"❌ Ошибка: {str(e)}"
