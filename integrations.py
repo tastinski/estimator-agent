@@ -94,7 +94,11 @@ def get_dropbox_photos(client_name_part):
             return []
         photos = []
         folder_contents = dbx.files_list_folder(client_folder)
-        for entry in folder_contents.entries:
+        all_entries = list(folder_contents.entries)
+        while folder_contents.has_more:
+            folder_contents = dbx.files_list_folder_continue(folder_contents.cursor)
+            all_entries.extend(folder_contents.entries)
+        for entry in all_entries:
             if hasattr(entry, "name") and entry.name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
                 _, response = dbx.files_download(entry.path_display)
                 photo_data = response.content
