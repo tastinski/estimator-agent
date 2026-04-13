@@ -38,11 +38,11 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     left = Alignment(horizontal="left", vertical="center", wrap_text=True)
     right_align = Alignment(horizontal="right", vertical="center")
 
-    ws.column_dimensions["A"].width = 55
-    ws.column_dimensions["B"].width = 8
-    ws.column_dimensions["C"].width = 10
-    ws.column_dimensions["D"].width = 14
-    ws.column_dimensions["E"].width = 14
+    ws.column_dimensions["A"].width = 75
+    ws.column_dimensions["B"].width = 10
+    ws.column_dimensions["C"].width = 12
+    ws.column_dimensions["D"].width = 16
+    ws.column_dimensions["E"].width = 16
 
     row = 1
 
