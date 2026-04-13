@@ -23,14 +23,33 @@ MONDAY_MAIN_BOARD = 18406712174
 MONDAY_CONTACTS_BOARD = 7023159061
 DROPBOX_ROOT = "/Aydin Projects 2026"
 
-def upload_to_dropbox(file_path, client_name, job_type):
+def upload_to_dropbox(file_path, client_name, job_type, existing_folder=None):
     try:
         dbx = dropbox.Dropbox(
             oauth2_refresh_token=DROPBOX_REFRESH_TOKEN,
             app_key=DROPBOX_APP_KEY,
             app_secret=DROPBOX_APP_SECRET
         )
-        try:
+if existing_folder:
+            try:
+                result = dbx.files_list_folder(DROPBOX_ROOT)
+                for entry in result.entries:
+                    if hasattr(entry, "name") and existing_folder.lower() in entry.name.lower():
+                        dropbox_folder = entry.path_display
+                        folder_name = entry.name
+                        file_name = f"{folder_name} estimate.xlsx"
+                        dropbox_path = f"{dropbox_folder}/{file_name}"
+                        with open(file_path, "rb") as f:
+                            dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
+                        try:
+                            link = dbx.sharing_create_shared_link_with_settings(dropbox_path)
+                            return link.url
+                        except dropbox.exceptions.ApiError:
+                            links = dbx.sharing_list_shared_links(path=dropbox_path, direct_only=True)
+                            return links.links[0].url if links.links else dropbox_path
+            except Exception as e:
+                print(f"existing_folder error: {e}")
+                try:
             dbx.files_get_metadata(DROPBOX_ROOT)
         except dropbox.exceptions.ApiError:
             dbx.files_create_folder_v2(DROPBOX_ROOT)
