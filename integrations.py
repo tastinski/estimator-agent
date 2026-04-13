@@ -5,6 +5,8 @@ import sendgrid
 import base64
 import json
 import traceback
+import io
+from PIL import Image
 from dropbox.files import WriteMode
 from dotenv import load_dotenv
 from datetime import datetime
@@ -97,6 +99,19 @@ def upload_to_dropbox(file_path, client_name, job_type, existing_folder=None):
         traceback.print_exc()
         return ""
 
+def compress_image_for_claude(photo_data, max_size=1568):
+    try:
+        img = Image.open(io.BytesIO(photo_data))
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img.thumbnail((max_size, max_size))
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=80)
+        return buffer.getvalue()
+    except Exception as e:
+        print(f"Image compress error: {e}")
+        return photo_data
+
 def get_dropbox_photos(client_name_part):
     try:
         dbx = dropbox.Dropbox(
@@ -122,10 +137,12 @@ def get_dropbox_photos(client_name_part):
         for entry in all_entries:
             if hasattr(entry, "name") and entry.name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
                 _, response = dbx.files_download(entry.path_display)
-                photo_data = response.content
-                photo_b64 = base64.standard_b64encode(photo_data).decode("utf-8")
+                original_data = response.content
+                # Сжимаем только для Claude, оригинал в Dropbox не трогаем
+                compressed_data = compress_image_for_claude(original_data)
+                photo_b64 = base64.standard_b64encode(compressed_data).decode("utf-8")
                 photos.append({"name": entry.name, "data": photo_b64})
-                print(f"Загружено фото: {entry.name}")
+                print(f"Загружено фото: {entry.name} (сжато для Claude)")
                 if len(photos) >= 10:
                     break
         print(f"Всего фото: {len(photos)}")
