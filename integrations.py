@@ -362,7 +362,7 @@ def find_client_in_monday(client_name_query):
     except Exception as e:
         print(f"find_client_in_monday error: {e}")
         return None
-        def update_monday_item_link(item_id, dropbox_url):
+def update_monday_item_link(item_id, dropbox_url):
     try:
         headers = {"Authorization": MONDAY_API_KEY, "Content-Type": "application/json",
                    "API-Version": "2023-10"}
