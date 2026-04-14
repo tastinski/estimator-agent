@@ -13,11 +13,11 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = "https://estimator-agent-production.up.railway.app/telegram"
+WEBHOOK_URL    = "https://estimator-agent-production.up.railway.app/telegram"
 
-app = Flask(__name__)
-bot_app = None
-bot_loop = None
+app       = Flask(__name__)
+bot_app   = None
+bot_loop  = None
 bot_ready = threading.Event()
 
 
@@ -30,25 +30,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Привет! Я Estimator Agent.\n\n"
         "Опиши работу или скинь фото.\n\n"
         "/new — новый эстимейт\n"
-        "/dropbox [имя клиента] — анализ фото из Dropbox"
+        "/dropbox [номер имя] [scope] — анализ фото из Dropbox\n\n"
+        "Примеры:\n"
+        "/dropbox 26041314 Roseane\n"
+        "/dropbox 26041314 Roseane pressure wash only"
     )
 
 async def new_estimate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from agent import clear_conversation
     user_id = update.message.from_user.id
-    result = clear_conversation(user_id)
+    result  = clear_conversation(user_id)
     await update.message.reply_text(result)
 
 async def handle_dropbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from agent import process_dropbox_photos
     user_id = update.message.from_user.id
-    client_name = " ".join(context.args) if context.args else ""
-    if not client_name:
-        await update.message.reply_text("Напиши имя клиента: /dropbox Maria Gonzalez")
+    args    = context.args if context.args else []
+
+    if not args:
+        await update.message.reply_text(
+            "Напиши имя клиента:\n"
+            "/dropbox 26041314 Roseane\n"
+            "Или с уточнением: /dropbox 26041314 Roseane pressure wash only"
+        )
         return
-    await update.message.reply_text(f"📸 Ищу фото в Dropbox для {client_name}... Это займёт 1-2 минуты.")
+
+    # Первые два слова — номер + имя клиента, остальное — scope работы
+    if len(args) >= 2:
+        client_name = f"{args[0]} {args[1]}"
+        caption     = " ".join(args[2:]) if len(args) > 2 else ""
+    else:
+        client_name = args[0]
+        caption     = ""
+
+    await update.message.reply_text(
+        f"📸 Ищу фото в Dropbox для {client_name}... Это займёт 1-2 минуты."
+    )
     try:
-        result = await process_dropbox_photos(user_id, client_name)
+        result     = await process_dropbox_photos(user_id, client_name, caption=caption)
         chunk_size = 4000
         for i in range(0, len(result), chunk_size):
             await update.message.reply_text(result[i:i + chunk_size])
@@ -58,7 +77,7 @@ async def handle_dropbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from agent import process_request
-    user_id = update.message.from_user.id
+    user_id      = update.message.from_user.id
     user_message = update.message.text
     try:
         await update.message.reply_text("Обрабатываю...")
@@ -75,9 +94,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await update.message.reply_text("Фото получено, анализирую...")
         photo = update.message.photo[-1]
-        file = await context.bot.get_file(photo.file_id)
+        file  = await context.bot.get_file(photo.file_id)
         async with httpx.AsyncClient() as client:
-            response = await client.get(file.file_path)
+            response   = await client.get(file.file_path)
             image_data = response.content
         result = await process_photo(user_id, image_data, caption)
         await update.message.reply_text(result)
@@ -98,7 +117,7 @@ def health():
 def telegram_webhook():
     global bot_app, bot_loop
     if bot_app and bot_loop:
-        data = request.get_json(force=True)
+        data   = request.get_json(force=True)
         update = Update.de_json(data, bot_app.bot)
         asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
     return Response(status=200)
@@ -108,7 +127,7 @@ def sms_reply():
     from twilio.twiml.messaging_response import MessagingResponse
     from agent import process_request
     phone = request.form.get("From", "")
-    body = request.form.get("Body", "").strip()
+    body  = request.form.get("Body", "").strip()
     try:
         future = asyncio.run_coroutine_threadsafe(
             process_request(phone, body), bot_loop
@@ -132,10 +151,11 @@ def monday_webhook():
 
         print(f"Monday event received: {json.dumps(data)[:500]}")
 
-        event = data.get("event", {})
-        item_id = event.get("pulseId") or event.get("itemId")
-        body = event.get("textBody", "") or event.get("body", "")
+        event        = data.get("event", {})
+        item_id      = event.get("pulseId") or event.get("itemId")
+        body         = event.get("textBody", "") or event.get("body", "")
         creator_name = event.get("userName", "")
+        user_id      = event.get("userId", "")
 
         if not item_id or not body:
             return {"status": "skip - no item or body"}, 200
@@ -146,10 +166,9 @@ def monday_webhook():
         if "@AI_Assist" not in body and "@ai_assist" not in body.lower():
             return {"status": "skip - no mention"}, 200
 
-        # Отвечаем Monday СРАЗУ — обработка в фоне
         threading.Thread(
             target=process_monday_async,
-            args=(item_id, body),
+            args=(item_id, body, str(user_id)),
             daemon=True
         ).start()
 
@@ -164,49 +183,75 @@ def monday_webhook():
 # MONDAY BACKGROUND PROCESSOR
 # ─────────────────────────────────────────
 
-def process_monday_async(item_id, body):
+def process_monday_async(item_id, body, user_id=""):
     try:
         from monday_webhook import post_monday_comment, get_item_details
-        from agent import process_request
+        from agent import process_monday_request
 
-        print(f"Processing Monday item {item_id}")
+        print(f"Processing Monday item {item_id} from user {user_id}")
 
         item_details = get_item_details(item_id)
-        items = item_details.get("data", {}).get("items", [])
+        items        = item_details.get("data", {}).get("items", [])
         if not items:
             print(f"Item {item_id} not found in Monday")
             return
 
-        item = items[0]
-        client_name = item.get("name", "Client")
-        cols = {c["id"]: c["text"] for c in item.get("column_values", [])}
-        job_type = cols.get("text6__1", "")
-        location = cols.get("text__1", "")
+        item         = items[0]
+        client_name  = item.get("name", "Client")
+        cols         = {c["id"]: c["text"] for c in item.get("column_values", [])}
+        job_type     = cols.get("text6__1", "")
+        location     = cols.get("text__1", "")
+        phone        = cols.get("phone__1", "")
+        email        = cols.get("email__1", "")
+        dropbox_url  = cols.get("link__1", "")
 
         # Чистим @AI_Assist из текста
-        clean_body = body.replace("@AI_Assist", "").replace("@ai_assist", "").strip()
+        clean_body = (body
+                      .replace("@AI_Assist", "")
+                      .replace("@ai_assist", "")
+                      .strip())
 
-        context = (
-            f"Project: {client_name}. "
-            f"Job: {job_type}. "
-            f"Location: {location}. "
-            f"Question: {clean_body}"
+        # Mention того кто написал — придёт нотификация
+        mention = (
+            f'<a class="user_mention_editor" '
+            f'data-mention-type="User" '
+            f'data-mention-id="{user_id}">@mention</a> '
+            if user_id else ""
         )
 
         global bot_loop
         if bot_loop:
             future = asyncio.run_coroutine_threadsafe(
-                process_request(f"monday_{item_id}", context), bot_loop
+                process_monday_request(
+                    item_id=item_id,
+                    client_name=client_name,
+                    job_type=job_type,
+                    location=location,
+                    phone=phone,
+                    email=email,
+                    dropbox_url=dropbox_url,
+                    message=clean_body
+                ),
+                bot_loop
             )
-            response = future.result(timeout=90)
+            response = future.result(timeout=120)
         else:
             loop = asyncio.new_event_loop()
             response = loop.run_until_complete(
-                process_request(f"monday_{item_id}", context)
+                process_monday_request(
+                    item_id=item_id,
+                    client_name=client_name,
+                    job_type=job_type,
+                    location=location,
+                    phone=phone,
+                    email=email,
+                    dropbox_url=dropbox_url,
+                    message=clean_body
+                )
             )
             loop.close()
 
-        result = post_monday_comment(item_id, f"**AI_Assist:** {response}")
+        result = post_monday_comment(item_id, f"{mention}{response}")
         print(f"Monday comment posted for item {item_id}: {result}")
 
     except Exception as e:
