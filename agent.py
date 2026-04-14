@@ -9,7 +9,8 @@ from integrations import (
     send_estimate_email,
     create_monday_cards,
     find_client_in_monday,
-    get_dropbox_photos
+    get_dropbox_photos,
+    update_monday_item_link
 )
 
 load_dotenv()
@@ -143,10 +144,10 @@ async def run_pipeline(assistant_message, existing_client_folder=None):
 
 
 # ─────────────────────────────────────────
-# PIPELINE — Monday (только Excel в Dropbox, без новой карточки)
+# PIPELINE — Monday (Excel в Dropbox + обновляет link в карточке)
 # ─────────────────────────────────────────
 
-async def run_pipeline_monday(assistant_message, client_name):
+async def run_pipeline_monday(assistant_message, client_name, item_id=None):
     from excel_generator import generate_estimate_excel as generate_pdf
     data     = extract_estimate_data(assistant_message)
     job_type = data.get("job_type", "Job")
@@ -156,7 +157,11 @@ async def run_pipeline_monday(assistant_message, client_name):
             pdf_path, client_name, job_type,
             existing_folder=client_name
         )
-        return f"\n\n✅ Excel создан\n📁 Dropbox: {dropbox_url}"
+        # Обновляем ссылку в существующей карточке Monday
+        if item_id:
+            update_monday_item_link(item_id, dropbox_url)
+
+        return f'\n\n✅ Excel создан\n📁 <a href="{dropbox_url}">Открыть в Dropbox</a>'
     except Exception as e:
         return f"\n\n⚠️ Пайплайн ошибка: {str(e)}"
 
@@ -237,11 +242,10 @@ async def process_monday_request(item_id, client_name, job_type,
         if intent == "email":
             return await handle_email_command(message)
 
-        need_estimate = is_estimate_request(message)
+        need_estimate   = is_estimate_request(message)
         message_content = []
 
         if need_estimate:
-            # Идём в Dropbox за фото
             photos = get_dropbox_photos(client_name)
             if photos:
                 message_content.append({
@@ -321,11 +325,12 @@ async def process_monday_request(item_id, client_name, job_type,
 
         conversations[user_key].append({"role": "assistant", "content": assistant_message})
 
-        # Excel в Dropbox — но НЕ создаём новую карточку в Monday
+        # Excel в Dropbox + обновляем link в карточке, НЕ создаём новую
         if "TOTAL ESTIMATE:" in assistant_message and need_estimate:
             pipeline_result = await run_pipeline_monday(
                 assistant_message,
-                client_name=client_name
+                client_name=client_name,
+                item_id=item_id
             )
             assistant_message += pipeline_result
 
@@ -439,14 +444,12 @@ async def process_dropbox_photos(user_id, client_name, caption=""):
             conversations[user_id] = []
 
         if caption:
-            # Scope задан — сразу считаем estimate
             instruction = (
                 f"Analyze photos for {client_name}. "
                 f"Scope specified: {caption}. "
                 f"Create estimate for ONLY what was specified."
             )
         else:
-            # Scope не задан — описываем и спрашиваем подтверждение
             instruction = (
                 f"Analyze photos for {client_name}. "
                 f"Describe what work you see needed. "
@@ -475,7 +478,6 @@ async def process_dropbox_photos(user_id, client_name, caption=""):
         assistant_message = response.content[0].text
         conversations[user_id].append({"role": "assistant", "content": assistant_message})
 
-        # Пайплайн только если был caption (подтверждённый scope)
         if "TOTAL ESTIMATE:" in assistant_message and caption:
             pipeline_result = await run_pipeline(
                 assistant_message,
