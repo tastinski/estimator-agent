@@ -1,4 +1,3 @@
-```python
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.drawing.image import Image as XLImage
