@@ -8,7 +8,8 @@ from integrations import (
     upload_to_dropbox,
     send_estimate_email,
     create_monday_cards,
-    find_client_in_monday
+    find_client_in_monday,
+    get_dropbox_photos
 )
 
 load_dotenv()
@@ -23,12 +24,12 @@ YOUR PRIMARY JOB: Create professional estimates for handyman work.
 SECONDARY: Help with any work-related tasks — send emails, search prices, answer questions about jobs.
 
 === ESTIMATE MODE ===
-When client describes work → collect info → generate estimate in EXACT format:
+When you have enough info — generate estimate immediately in EXACT format:
 CLIENT: [full name]
-PHONE: [phone]
+PHONE: [phone or N/A]
 EMAIL: [email or N/A]
 JOB: [job type]
-LOCATION: [city, state]
+LOCATION: [city, state or N/A]
 BREAKDOWN:
 - [item materials]: $[price]
 - [item labor]: $[price]
@@ -37,6 +38,8 @@ SUBTOTAL LABOR: $[amount]
 TOTAL ESTIMATE: $[amount]
 TIMELINE: [days]
 NOTES: [notes]
+
+IMPORTANT: If phone, email or location are missing — use N/A. Do NOT ask for them unless absolutely necessary. Generate the estimate with what you have.
 
 === EDIT MODE ===
 When asked to modify estimate (remove item, recalculate, change price):
@@ -56,10 +59,9 @@ Return concise result: product name, price, source.
 - Be concise. No fluff.
 - If asked anything work-related (materials, timelines, techniques) — answer directly.
 - English only unless client writes in another language.
-- Never say you cannot access Dropbox, Monday or email — system handles all of that automatically.
+- Never say you cannot access Dropbox, Monday or email — system handles all automatically.
 
 IMPORTANT: Keep all responses under 3500 tokens.
-For estimates — be concise in NOTES and descriptions.
 Never cut off mid-sentence. Always complete your response fully."""
 
 
@@ -99,8 +101,16 @@ def detect_intent(message):
     return "estimate"
 
 
+def is_estimate_request(message):
+    return any(x in message.lower() for x in [
+        "estimate", "quote", "price", "cost", "how much",
+        "make estimate", "create estimate", "prepare estimate",
+        "эстимейт", "посчитай", "сколько стоит"
+    ])
+
+
 # ─────────────────────────────────────────
-# PIPELINE
+# PIPELINE — Telegram (создаёт карточку в Monday)
 # ─────────────────────────────────────────
 
 async def run_pipeline(assistant_message, existing_client_folder=None):
@@ -133,6 +143,25 @@ async def run_pipeline(assistant_message, existing_client_folder=None):
 
 
 # ─────────────────────────────────────────
+# PIPELINE — Monday (только Excel в Dropbox, без новой карточки)
+# ─────────────────────────────────────────
+
+async def run_pipeline_monday(assistant_message, client_name):
+    from excel_generator import generate_estimate_excel as generate_pdf
+    data     = extract_estimate_data(assistant_message)
+    job_type = data.get("job_type", "Job")
+    try:
+        pdf_path    = generate_pdf(assistant_message, client_name, job_type)
+        dropbox_url = upload_to_dropbox(
+            pdf_path, client_name, job_type,
+            existing_folder=client_name
+        )
+        return f"\n\n✅ Excel создан\n📁 Dropbox: {dropbox_url}"
+    except Exception as e:
+        return f"\n\n⚠️ Пайплайн ошибка: {str(e)}"
+
+
+# ─────────────────────────────────────────
 # EMAIL HANDLER
 # ─────────────────────────────────────────
 
@@ -151,7 +180,7 @@ async def handle_email_command(message):
                 break
 
         if not client_name:
-            return "❌ Не понял имя клиента. Напиши: 'Send email to Maria Gonzalez'"
+            return "❌ Не понял имя клиента. Напиши: 'Send email to Maria Gonzalez 260414'"
 
         result = find_client_in_monday(client_name)
 
@@ -159,12 +188,12 @@ async def handle_email_command(message):
             return f"❌ Клиент '{client_name}' не найден в Monday."
 
         if isinstance(result, list):
-            lines = [f"🔍 Найдено {len(result)} клиента с именем '{client_name}'. Уточни номер карточки:\n"]
+            lines = [f"🔍 Найдено {len(result)} клиента с именем '{client_name}'. Уточни:\n"]
             for c in result:
                 location = c.get("location") or "локация не указана"
                 job      = c.get("job_type") or "работа не указана"
                 lines.append(f"• {c['name']} — {location} | {job}")
-            lines.append("\nНапиши полное имя с номером, например: Send email to Maria Gonzalez 260414")
+            lines.append("\nНапиши полное имя с номером: Send email to Maria Gonzalez 260414")
             return "\n".join(lines)
 
         client_email = result.get("email", "")
@@ -193,7 +222,121 @@ async def handle_email_command(message):
 
 
 # ─────────────────────────────────────────
-# MAIN PROCESS
+# MONDAY REQUEST
+# ─────────────────────────────────────────
+
+async def process_monday_request(item_id, client_name, job_type,
+                                  location, phone, email,
+                                  dropbox_url, message):
+    try:
+        user_key = f"monday_{item_id}"
+        if user_key not in conversations:
+            conversations[user_key] = []
+
+        intent = detect_intent(message)
+        if intent == "email":
+            return await handle_email_command(message)
+
+        need_estimate = is_estimate_request(message)
+        message_content = []
+
+        if need_estimate:
+            # Идём в Dropbox за фото
+            photos = get_dropbox_photos(client_name)
+            if photos:
+                message_content.append({
+                    "type": "text",
+                    "text": (
+                        f"Client: {client_name}. "
+                        f"Phone: {phone or 'N/A'}. "
+                        f"Email: {email or 'N/A'}. "
+                        f"Job: {job_type}. "
+                        f"Location: {location or 'N/A'}.\n"
+                        f"Request: {message}\n"
+                        f"Analyze these {len(photos)} photos and create estimate. "
+                        f"Use phone/email/location from above — do NOT ask for them again."
+                    )
+                })
+                for photo in photos:
+                    message_content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": photo["data"]
+                        }
+                    })
+                print(f"Loaded {len(photos)} photos from Dropbox for {client_name}")
+            else:
+                message_content.append({
+                    "type": "text",
+                    "text": (
+                        f"Client: {client_name}. "
+                        f"Phone: {phone or 'N/A'}. "
+                        f"Email: {email or 'N/A'}. "
+                        f"Job: {job_type}. "
+                        f"Location: {location or 'N/A'}.\n"
+                        f"Request: {message}\n"
+                        f"No photos found in Dropbox. "
+                        f"Create estimate based on job description. "
+                        f"Use phone/email/location from above — do NOT ask for them again."
+                    )
+                })
+        else:
+            message_content.append({
+                "type": "text",
+                "text": (
+                    f"Client: {client_name}. "
+                    f"Phone: {phone or 'N/A'}. "
+                    f"Email: {email or 'N/A'}. "
+                    f"Job: {job_type}. "
+                    f"Location: {location or 'N/A'}. "
+                    f"Question: {message}"
+                )
+            })
+
+        conversations[user_key].append({"role": "user", "content": message_content})
+
+        prices        = search_prices(message or job_type)
+        system_prompt = SYSTEM_PROMPT_BASE + f"\n\nMarket prices from RAG: {prices}"
+
+        kwargs = {
+            "model":      "claude-opus-4-6",
+            "max_tokens": 4000,
+            "system":     system_prompt,
+            "messages":   conversations[user_key]
+        }
+        if intent == "search":
+            kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+
+        response = client.messages.create(**kwargs)
+
+        assistant_message = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                assistant_message += block.text
+
+        if not assistant_message:
+            assistant_message = "Готово."
+
+        conversations[user_key].append({"role": "assistant", "content": assistant_message})
+
+        # Excel в Dropbox — но НЕ создаём новую карточку в Monday
+        if "TOTAL ESTIMATE:" in assistant_message and need_estimate:
+            pipeline_result = await run_pipeline_monday(
+                assistant_message,
+                client_name=client_name
+            )
+            assistant_message += pipeline_result
+
+        return assistant_message
+
+    except Exception as e:
+        return f"❌ Ошибка: {str(e)}"
+
+
+# ─────────────────────────────────────────
+# TELEGRAM — MAIN PROCESS
 # ─────────────────────────────────────────
 
 async def process_request(user_id, user_message):
@@ -288,7 +431,6 @@ async def process_photo(user_id, image_data, caption=""):
 
 async def process_dropbox_photos(user_id, client_name, caption=""):
     try:
-        from integrations import get_dropbox_photos
         photos = get_dropbox_photos(client_name)
         if not photos:
             return f"❌ Фото не найдены в Dropbox для клиента: {client_name}"
@@ -296,9 +438,23 @@ async def process_dropbox_photos(user_id, client_name, caption=""):
         if user_id not in conversations:
             conversations[user_id] = []
 
-        message_content = [
-            {"type": "text", "text": f"Analyze all these photos for {client_name} and create a detailed estimate."}
-        ]
+        if caption:
+            # Scope задан — сразу считаем estimate
+            instruction = (
+                f"Analyze photos for {client_name}. "
+                f"Scope specified: {caption}. "
+                f"Create estimate for ONLY what was specified."
+            )
+        else:
+            # Scope не задан — описываем и спрашиваем подтверждение
+            instruction = (
+                f"Analyze photos for {client_name}. "
+                f"Describe what work you see needed. "
+                f"Ask: 'Is this the correct scope or do you want to adjust?' "
+                f"Do NOT generate TOTAL ESTIMATE yet — wait for confirmation."
+            )
+
+        message_content = [{"type": "text", "text": instruction}]
         for photo in photos:
             message_content.append({
                 "type": "image",
@@ -307,7 +463,7 @@ async def process_dropbox_photos(user_id, client_name, caption=""):
 
         conversations[user_id].append({"role": "user", "content": message_content})
 
-        prices        = search_prices("exterior painting handyman work")
+        prices        = search_prices(caption or "handyman work")
         system_prompt = SYSTEM_PROMPT_BASE + f"\n\nMarket prices from RAG: {prices}"
 
         response = client.messages.create(
@@ -319,7 +475,8 @@ async def process_dropbox_photos(user_id, client_name, caption=""):
         assistant_message = response.content[0].text
         conversations[user_id].append({"role": "assistant", "content": assistant_message})
 
-        if "TOTAL ESTIMATE:" in assistant_message:
+        # Пайплайн только если был caption (подтверждённый scope)
+        if "TOTAL ESTIMATE:" in assistant_message and caption:
             pipeline_result = await run_pipeline(
                 assistant_message,
                 existing_client_folder=client_name
