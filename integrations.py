@@ -362,3 +362,24 @@ def find_client_in_monday(client_name_query):
     except Exception as e:
         print(f"find_client_in_monday error: {e}")
         return None
+        def update_monday_item_link(item_id, dropbox_url):
+    try:
+        headers = {"Authorization": MONDAY_API_KEY, "Content-Type": "application/json",
+                   "API-Version": "2023-10"}
+        query = """mutation ($item: ID!, $board: ID!, $col: String!, $val: JSON!) {
+            change_column_value(item_id: $item, board_id: $board,
+                                column_id: $col, value: $val) { id }
+        }"""
+        val = json.dumps({"url": dropbox_url, "text": "Estimate XLSX"})
+        r = requests.post(
+            "https://api.monday.com/v2", headers=headers,
+            json={"query": query, "variables": {
+                "item":  str(item_id),
+                "board": str(MONDAY_MAIN_BOARD),
+                "col":   "link__1",
+                "val":   val
+            }}
+        )
+        print(f"update_monday_item_link {item_id}: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"update_monday_item_link error: {e}")
