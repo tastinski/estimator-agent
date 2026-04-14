@@ -32,8 +32,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/new — новый эстимейт\n"
         "/dropbox [номер имя] [scope] — анализ фото из Dropbox\n\n"
         "Примеры:\n"
-        "/dropbox 26041314 Roseane\n"
-        "/dropbox 26041314 Roseane pressure wash only"
+        "/dropbox 26041314 Roseanne\n"
+        "/dropbox 26041314 Roseanne pressure wash only"
     )
 
 async def new_estimate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -50,12 +50,11 @@ async def handle_dropbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text(
             "Напиши имя клиента:\n"
-            "/dropbox 26041314 Roseane\n"
-            "Или с уточнением: /dropbox 26041314 Roseane pressure wash only"
+            "/dropbox 26041314 Roseanne\n"
+            "Или с уточнением: /dropbox 26041314 Roseanne pressure wash only"
         )
         return
 
-    # Первые два слова — номер + имя клиента, остальное — scope работы
     if len(args) >= 2:
         client_name = f"{args[0]} {args[1]}"
         caption     = " ".join(args[2:]) if len(args) > 2 else ""
@@ -205,13 +204,16 @@ def process_monday_async(item_id, body, user_id=""):
         email        = cols.get("email__1", "")
         dropbox_url  = cols.get("link__1", "")
 
-        # Чистим @AI_Assist из текста
+        # Ищем папку в Dropbox по номеру + имя клиента
+        card_number = cols.get("text5__1", "")
+        search_name = f"{card_number} {client_name}".strip() if card_number else client_name
+        print(f"Dropbox search: '{search_name}'")
+
         clean_body = (body
                       .replace("@AI_Assist", "")
                       .replace("@ai_assist", "")
                       .strip())
 
-        # Mention того кто написал — придёт нотификация
         mention = (
             f'<a class="user_mention_editor" '
             f'data-mention-type="User" '
@@ -224,7 +226,7 @@ def process_monday_async(item_id, body, user_id=""):
             future = asyncio.run_coroutine_threadsafe(
                 process_monday_request(
                     item_id=item_id,
-                    client_name=client_name,
+                    client_name=search_name,
                     job_type=job_type,
                     location=location,
                     phone=phone,
@@ -240,7 +242,7 @@ def process_monday_async(item_id, body, user_id=""):
             response = loop.run_until_complete(
                 process_monday_request(
                     item_id=item_id,
-                    client_name=client_name,
+                    client_name=search_name,
                     job_type=job_type,
                     location=location,
                     phone=phone,
