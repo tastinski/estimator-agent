@@ -320,6 +320,3 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
 
     wb.save(filepath)
     return filepath
-```
-
-Коммить.
