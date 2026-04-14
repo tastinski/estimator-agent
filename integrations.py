@@ -17,16 +17,20 @@ from sendgrid.helpers.mail import (
 
 load_dotenv()
 
-DROPBOX_APP_KEY      = os.getenv("DROPBOX_APP_KEY")
-DROPBOX_APP_SECRET   = os.getenv("DROPBOX_APP_SECRET")
+DROPBOX_APP_KEY       = os.getenv("DROPBOX_APP_KEY")
+DROPBOX_APP_SECRET    = os.getenv("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
-SENDGRID_API_KEY     = os.getenv("SENDGRID_API_KEY")
-SENDGRID_FROM_EMAIL  = os.getenv("SENDGRID_FROM_EMAIL")
-MONDAY_API_KEY       = os.getenv("MONDAY_API_KEY")
+SENDGRID_API_KEY      = os.getenv("SENDGRID_API_KEY")
+SENDGRID_FROM_EMAIL   = os.getenv("SENDGRID_FROM_EMAIL")
+MONDAY_API_KEY        = os.getenv("MONDAY_API_KEY")
 
 MONDAY_MAIN_BOARD     = 18406712174
 MONDAY_CONTACTS_BOARD = 7023159061
 DROPBOX_ROOT          = "/Aydin Projects 2026"
+
+# Мусорные значения — не отправляем в Monday
+DIRTY_VALUES = ["na", "n/a", "unknown", "needed", "[needed]",
+                "none", "pending", "[pending]", "n\\a", ""]
 
 
 # ─────────────────────────────────────────
@@ -42,7 +46,6 @@ def get_dbx():
 
 
 def list_all_dropbox_entries(dbx, path):
-    """List ALL entries in a folder with pagination."""
     try:
         result = dbx.files_list_folder(path)
         entries = list(result.entries)
@@ -66,7 +69,7 @@ def compress_image_for_claude(photo_data, max_size=1568):
         return buffer.getvalue()
     except Exception as e:
         print(f"compress_image_for_claude error: {e}")
-        return photo_data  # возвращаем оригинал если PIL не справился
+        return photo_data
 
 
 # ─────────────────────────────────────────
@@ -77,7 +80,6 @@ def upload_to_dropbox(file_path, client_name, job_type, existing_folder=None):
     try:
         dbx = get_dbx()
 
-        # Убеждаемся что корневая папка существует
         try:
             dbx.files_get_metadata(DROPBOX_ROOT)
         except dropbox.exceptions.ApiError:
@@ -85,31 +87,24 @@ def upload_to_dropbox(file_path, client_name, job_type, existing_folder=None):
 
         all_entries = list_all_dropbox_entries(dbx, DROPBOX_ROOT)
 
-        # Если передана папка клиента — ищем её среди всех папок
         if existing_folder:
             for entry in all_entries:
                 if hasattr(entry, "name") and existing_folder.lower() in entry.name.lower():
-                    folder_name   = entry.name
+                    folder_name    = entry.name
                     dropbox_folder = entry.path_display
-                    file_name     = f"{folder_name} estimate.xlsx"
-                    dropbox_path  = f"{dropbox_folder}/{file_name}"
+                    file_name      = f"{folder_name} estimate.xlsx"
+                    dropbox_path   = f"{dropbox_folder}/{file_name}"
                     with open(file_path, "rb") as f:
                         dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
                     return _get_shared_link(dbx, dropbox_path)
 
-        # Генерируем новую папку
-        date_str = datetime.now().strftime("%m%d%y")
-
-        # Счётчик — берём ВСЕ папки, не только сегодняшние
+        date_str       = datetime.now().strftime("%m%d%y")
         existing_count = sum(1 for e in all_entries if hasattr(e, "name"))
-        seq = 11 + existing_count
-
-        # Имя карточки с датой-ID: "Maria Gonzalez 260414"
-        card_id     = datetime.now().strftime("%y%m%d")
-        folder_name  = f"{date_str}-{seq}-{client_name}"
+        seq            = 11 + existing_count
+        folder_name    = f"{date_str}-{seq}-{client_name}"
         dropbox_folder = f"{DROPBOX_ROOT}/{folder_name}"
-        file_name   = f"{folder_name} estimate.xlsx"
-        dropbox_path = f"{dropbox_folder}/{file_name}"
+        file_name      = f"{folder_name} estimate.xlsx"
+        dropbox_path   = f"{dropbox_folder}/{file_name}"
 
         try:
             dbx.files_create_folder_v2(dropbox_folder)
@@ -131,7 +126,6 @@ def upload_to_dropbox(file_path, client_name, job_type, existing_folder=None):
 
 
 def _get_shared_link(dbx, dropbox_path):
-    """Create or retrieve shared link for a file."""
     try:
         link = dbx.sharing_create_shared_link_with_settings(dropbox_path)
         return link.url
@@ -148,7 +142,7 @@ def _get_shared_link(dbx, dropbox_path):
 
 def get_dropbox_photos(client_name_part):
     try:
-        dbx = get_dbx()
+        dbx         = get_dbx()
         all_entries = list_all_dropbox_entries(dbx, DROPBOX_ROOT)
 
         client_folder = None
@@ -169,8 +163,8 @@ def get_dropbox_photos(client_name_part):
             if not entry.name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
                 continue
             _, response = dbx.files_download(entry.path_display)
-            compressed = compress_image_for_claude(response.content)
-            photo_b64  = base64.standard_b64encode(compressed).decode("utf-8")
+            compressed  = compress_image_for_claude(response.content)
+            photo_b64   = base64.standard_b64encode(compressed).decode("utf-8")
             photos.append({"name": entry.name, "data": photo_b64})
             print(f"Загружено фото: {entry.name}")
             if len(photos) >= 10:
@@ -192,8 +186,7 @@ def get_dropbox_photos(client_name_part):
 def send_estimate_email(client_email, client_name, job_type,
                         estimate_text="", pdf_path=None, dropbox_url=""):
     try:
-        sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_API_KEY)
-
+        sg   = sendgrid.SendGridAPIClient(api_key=SENDGRID_API_KEY)
         html = (
             f"<p>Hi {client_name},</p>"
             f"<p>Thank you for choosing Handy Eddy! "
@@ -210,7 +203,6 @@ def send_estimate_email(client_email, client_name, job_type,
             html_content=html
         )
 
-        # Аттач Excel если есть локальный файл
         if pdf_path and os.path.exists(pdf_path):
             with open(pdf_path, "rb") as f:
                 pdf_data = base64.b64encode(f.read()).decode()
@@ -235,25 +227,29 @@ def send_estimate_email(client_email, client_name, job_type,
 # MONDAY — CREATE CARDS
 # ─────────────────────────────────────────
 
+def _clean_phone(raw):
+    if not raw:
+        return ""
+    cleaned = (raw.replace("(", "").replace(")", "")
+                  .replace(" ", "").replace("-", "").strip())
+    return "" if cleaned.lower() in DIRTY_VALUES else cleaned
+
+
+def _clean_email(raw):
+    if not raw:
+        return ""
+    return "" if raw.strip().lower() in DIRTY_VALUES else raw.strip()
+
+
 def create_monday_cards(client_name, job_type, estimate_total,
                         dropbox_url, client_email="", client_phone="", location=""):
     try:
-        headers = {"Authorization": MONDAY_API_KEY, "Content-Type": "application/json"}
-
-        # Имя карточки с уникальным ID: "Maria Gonzalez 260414"
-        card_id   = datetime.now().strftime("%y%m%d")
-        full_name = f"{client_name} {card_id}"
-
-        phone_clean = (
-            client_phone
-            .replace("(", "").replace(")", "")
-            .replace(" ", "").replace("-", "")
-            if client_phone else ""
-        )
-        if phone_clean.lower() in ["na", "n/a", "unknown"]:
-            phone_clean = ""
-
-        email_val = client_email if client_email and client_email.lower() not in ["n/a", "na", ""] else ""
+        headers     = {"Authorization": MONDAY_API_KEY, "Content-Type": "application/json",
+                       "API-Version": "2023-10"}
+        card_id     = datetime.now().strftime("%y%m%d")
+        full_name   = f"{client_name} {card_id}"
+        phone_clean = _clean_phone(client_phone)
+        email_val   = _clean_email(client_email)
 
         col_main = {
             "phone__1": {"phone": phone_clean, "countryShortName": "US"} if phone_clean else {},
@@ -267,7 +263,7 @@ def create_monday_cards(client_name, job_type, estimate_total,
             create_item(board_id: $board, group_id: $group,
                         item_name: $name, column_values: $cols) { id }
         }"""
-        r1 = requests.post(
+        r1    = requests.post(
             "https://api.monday.com/v2", headers=headers,
             json={"query": query1, "variables": {
                 "board": MONDAY_MAIN_BOARD,
@@ -290,7 +286,7 @@ def create_monday_cards(client_name, job_type, estimate_total,
         query2 = """mutation ($board: ID!, $name: String!, $cols: JSON!) {
             create_item(board_id: $board, item_name: $name, column_values: $cols) { id }
         }"""
-        r2 = requests.post(
+        r2    = requests.post(
             "https://api.monday.com/v2", headers=headers,
             json={"query": query2, "variables": {
                 "board": MONDAY_CONTACTS_BOARD,
@@ -316,18 +312,10 @@ def create_monday_cards(client_name, job_type, estimate_total,
 # ─────────────────────────────────────────
 
 def find_client_in_monday(client_name_query):
-    """
-    Search Monday main board by name.
-    Returns:
-      - None          если не найден
-      - dict          если найден ровно один
-      - list of dict  если найдено несколько
-    """
     try:
-        headers = {"Authorization": MONDAY_API_KEY, "Content-Type": "application/json"}
-
-        # Берём до 500 карточек чтобы не промахнуться
-        query = """query ($board: [ID!]) {
+        headers = {"Authorization": MONDAY_API_KEY, "Content-Type": "application/json",
+                   "API-Version": "2023-10"}
+        query   = """query ($board: [ID!]) {
             boards(ids: $board) {
                 items_page(limit: 500) {
                     items {
@@ -338,11 +326,11 @@ def find_client_in_monday(client_name_query):
                 }
             }
         }"""
-        r = requests.post(
+        r    = requests.post(
             "https://api.monday.com/v2", headers=headers,
             json={"query": query, "variables": {"board": [str(MONDAY_MAIN_BOARD)]}}
         )
-        data = r.json()
+        data  = r.json()
         items = (
             data.get("data", {})
                 .get("boards", [{}])[0]
@@ -351,7 +339,7 @@ def find_client_in_monday(client_name_query):
         )
 
         query_lower = client_name_query.lower().strip()
-        matches = []
+        matches     = []
         for item in items:
             if query_lower in item["name"].lower():
                 cols = {c["id"]: c["text"] for c in item["column_values"]}
