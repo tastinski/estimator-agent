@@ -29,6 +29,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     white_large = Font(name="Calibri", color=white, bold=True, size=24)
     dark_font   = Font(name="Calibri", color=dark_text, size=11)
     dark_bold   = Font(name="Calibri", color=dark_text, bold=True, size=11)
+    dark_italic = Font(name="Calibri", color=gray, size=10, italic=True)
 
     center      = Alignment(horizontal="center", vertical="center")
     left        = Alignment(horizontal="left", vertical="center", wrap_text=True)
@@ -85,6 +86,17 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         match = re.search(pattern, text, re.IGNORECASE)
         return match.group(1).strip().lstrip("*").strip() if match else ""
 
+    def clean_labor_desc(desc):
+        """Убираем слово labor и упоминания часов из описания"""
+        # Убираем "X hours @ $Y/hr" и похожее
+        desc = re.sub(r"\s*\(?\d+[\d.]*\s*-?\s*\d*[\d.]*\s*hours?\s*@[^)]*\)?", "", desc, flags=re.IGNORECASE)
+        desc = re.sub(r"\s*\(?\d+[\d.]*\s*hours?\s*[^)]*\)?", "", desc, flags=re.IGNORECASE)
+        desc = re.sub(r"\s*[-–—]\s*estimated\s*\d+.*hours?.*$", "", desc, flags=re.IGNORECASE)
+        # Убираем "Labor -" или "Labor:" в начале
+        desc = re.sub(r"(?i)^labor\s*[-–—:]?\s*", "", desc)
+        desc = re.sub(r"(?i)\s*[-–—]?\s*labor$", "", desc)
+        return desc.strip()
+
     client   = get_field(r"CLIENT:\s*(.+)", estimate_text)
     phone    = get_field(r"PHONE:\s*(.+)", estimate_text)
     email    = get_field(r"EMAIL:\s*(.+)", estimate_text)
@@ -92,7 +104,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     location = get_field(r"LOCATION:\s*(.+)", estimate_text)
     timeline = get_field(r"TIMELINE:\s*(.+)", estimate_text)
 
-    # Блок клиента — оранжевый заголовок
+    # Блок клиента
     ws.merge_cells(f"A{row}:E{row}")
     ws[f"A{row}"]           = "PREPARED FOR"
     ws[f"A{row}"].font      = white_bold
@@ -116,79 +128,63 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
 
     row += 1
 
-    # Заголовки колонок — серые
-    for col, header in zip(["A","B","C","D","E"],
-                           ["Description", "Qty", "Unit", "Unit Cost", "Total"]):
-        ws[f"{col}{row}"]           = header
-        ws[f"{col}{row}"].font      = white_bold
-        ws[f"{col}{row}"].fill      = gray_fill
-        ws[f"{col}{row}"].alignment = center
-    ws.row_dimensions[row].height = 22
-    row += 1
-
     # Парсим breakdown
     breakdown_match = re.search(
         r"BREAKDOWN:(.*?)(?:SUBTOTAL|TOTAL ESTIMATE|$)",
         estimate_text, re.DOTALL | re.IGNORECASE
     )
 
-    labor_rows     = []
+    labor_items    = []
     material_total = 0.0
 
     if breakdown_match:
         breakdown = breakdown_match.group(1)
         items     = re.findall(r"-\s*(.+?):\s*\$?([\d,]+)", breakdown)
-
         for desc, cost in items:
             desc     = desc.strip().lstrip("*").strip()
             cost_val = float(cost.replace(",", ""))
-            is_labor = any(w in desc.lower() for w in [
-                "labor", "labour", "hrs", "hours", "install", "work",
-                "prep", "cleanup", "washing", "scraping", "sanding",
-                "painting", "priming", "removal", "replacement",
-                "trim", "casing", "touch-up", "touchup"
-            ])
-
-            if is_labor:
-                # Labor — каждая строка отдельно, белый/светло-серый чередование
-                fill = light_fill if len(labor_rows) % 2 == 0 else white_fill
-                labor_rows.append(row)
-
-                qty       = 1
-                unit      = "ea"
-                unit_cost = cost_val
-                qty_match = re.search(r"\(([0-9.]+)\s*(\w+)\s*@\s*\$?([0-9.]+)\)", desc)
-                if qty_match:
-                    qty       = float(qty_match.group(1))
-                    unit      = qty_match.group(2)
-                    unit_cost = float(qty_match.group(3))
-                    desc      = re.sub(r"\s*\(.*?\)", "", desc).strip()
-
-                ws[f"A{row}"]               = f"  {desc}"
-                ws[f"B{row}"]               = qty
-                ws[f"C{row}"]               = unit
-                ws[f"D{row}"]               = unit_cost
-                ws[f"E{row}"]               = f"=B{row}*D{row}"
-                ws[f"A{row}"].alignment     = left
-                ws[f"B{row}"].alignment     = center
-                ws[f"C{row}"].alignment     = center
-                ws[f"D{row}"].alignment     = right_align
-                ws[f"E{row}"].alignment     = right_align
-                ws[f"D{row}"].number_format = "$#,##0.00"
-                ws[f"E{row}"].number_format = "$#,##0.00"
-                for col in ["A","B","C","D","E"]:
-                    ws[f"{col}{row}"].font = dark_font
-                    ws[f"{col}{row}"].fill = fill
-                ws.row_dimensions[row].height = 20
-                row += 1
+            if "labor" in desc.lower() or "labour" in desc.lower():
+                labor_items.append((desc, cost_val))
             else:
-                # Материалы — только суммируем
                 material_total += cost_val
 
-    # Одна строка Materials с итогом
-    mat_row = row
+    # ── LABOR секция ──────────────────────────
+    ws.merge_cells(f"A{row}:E{row}")
+    ws[f"A{row}"]           = "LABOR"
+    ws[f"A{row}"].font      = white_bold
+    ws[f"A{row}"].fill      = gray_fill
+    ws[f"A{row}"].alignment = left
+    ws.row_dimensions[row].height = 22
+    row += 1
+
+    labor_start_row = row
+    labor_total     = 0.0
+
+    for i, (desc, cost_val) in enumerate(labor_items):
+        fill = light_fill if i % 2 == 0 else white_fill
+        labor_total += cost_val
+
+        clean_desc = clean_labor_desc(desc)
+
+        ws.merge_cells(f"A{row}:D{row}")
+        ws[f"A{row}"]               = f"    • {clean_desc}"
+        ws[f"A{row}"].font          = dark_font
+        ws[f"A{row}"].fill          = fill
+        ws[f"A{row}"].alignment     = left
+        ws[f"E{row}"]               = cost_val
+        ws[f"E{row}"].font          = dark_font
+        ws[f"E{row}"].fill          = fill
+        ws[f"E{row}"].number_format = "$#,##0.00"
+        ws[f"E{row}"].alignment     = right_align
+        ws.row_dimensions[row].height = 20
+        row += 1
+
+    labor_end_row = row - 1
+    row += 1
+
+    # ── MATERIALS секция ──────────────────────
     ws.merge_cells(f"A{row}:D{row}")
-    ws[f"A{row}"]               = "  Materials (total)"
+    ws[f"A{row}"]               = "  Materials (estimated)"
     ws[f"A{row}"].font          = dark_font
     ws[f"A{row}"].fill          = white_fill
     ws[f"A{row}"].alignment     = left
@@ -200,10 +196,23 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.row_dimensions[row].height = 20
     row += 2
 
-    # Subtotal Materials
+    # ── SUBTOTALS ─────────────────────────────
+    subtotal_lab_row = row
+    ws.merge_cells(f"A{row}:D{row}")
+    ws[f"A{row}"]               = "ESTIMATED SUBTOTAL LABOR"
+    ws[f"A{row}"].font          = dark_bold
+    ws[f"A{row}"].fill          = light_fill
+    ws[f"E{row}"]               = f"=SUM(E{labor_start_row}:E{labor_end_row})" if labor_items else 0
+    ws[f"E{row}"].font          = dark_bold
+    ws[f"E{row}"].fill          = light_fill
+    ws[f"E{row}"].number_format = "$#,##0.00"
+    ws[f"E{row}"].alignment     = right_align
+    ws.row_dimensions[row].height = 22
+    row += 1
+
     subtotal_mat_row = row
     ws.merge_cells(f"A{row}:D{row}")
-    ws[f"A{row}"]               = "SUBTOTAL MATERIALS"
+    ws[f"A{row}"]               = "ESTIMATED SUBTOTAL MATERIALS"
     ws[f"A{row}"].font          = dark_bold
     ws[f"A{row}"].fill          = light_fill
     ws[f"E{row}"]               = material_total
@@ -214,27 +223,12 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.row_dimensions[row].height = 22
     row += 1
 
-    # Subtotal Labor — серый, без оранжевого
-    subtotal_lab_row = row
-    ws.merge_cells(f"A{row}:D{row}")
-    ws[f"A{row}"]               = "SUBTOTAL LABOR"
-    ws[f"A{row}"].font          = dark_bold
-    ws[f"A{row}"].fill          = light_fill
-    ws[f"E{row}"]               = f"=SUM(E{labor_rows[0]}:E{labor_rows[-1]})" if labor_rows else 0
-    ws[f"E{row}"].font          = dark_bold
-    ws[f"E{row}"].fill          = light_fill
-    ws[f"E{row}"].number_format = "$#,##0.00"
-    ws[f"E{row}"].alignment     = right_align
-    ws.row_dimensions[row].height = 22
-    row += 1
-
-    # Subtotal
     subtotal_row = row
     ws.merge_cells(f"A{row}:D{row}")
     ws[f"A{row}"]               = "SUBTOTAL"
     ws[f"A{row}"].font          = dark_bold
     ws[f"A{row}"].fill          = light_fill
-    ws[f"E{row}"]               = f"=E{subtotal_mat_row}+E{subtotal_lab_row}"
+    ws[f"E{row}"]               = f"=E{subtotal_lab_row}+E{subtotal_mat_row}"
     ws[f"E{row}"].font          = dark_bold
     ws[f"E{row}"].fill          = light_fill
     ws[f"E{row}"].number_format = "$#,##0.00"
@@ -242,7 +236,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.row_dimensions[row].height = 22
     row += 1
 
-    # Discount — без оранжевого шрифта
+    # Discount
     discount_row = row
     ws[f"A{row}"]               = "DISCOUNT %"
     ws[f"A{row}"].font          = dark_bold
@@ -253,7 +247,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"B{row}"].number_format = "0%"
     ws[f"B{row}"].alignment     = center
     ws[f"C{row}"]               = "(edit %)"
-    ws[f"C{row}"].font          = Font(name="Calibri", color=gray, size=9, italic=True)
+    ws[f"C{row}"].font          = dark_italic
     ws[f"C{row}"].fill          = white_fill
     ws[f"D{row}"].fill          = white_fill
     ws[f"E{row}"]               = f"=-B{row}*E{subtotal_row}"
@@ -264,7 +258,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.row_dimensions[row].height = 22
     row += 1
 
-    # Total — оранжевый только здесь
+    # Total — оранжевый
     ws.merge_cells(f"A{row}:D{row}")
     ws[f"A{row}"]               = "TOTAL ESTIMATE"
     ws[f"A{row}"].font          = Font(name="Calibri", color=white, bold=True, size=14)
