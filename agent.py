@@ -256,12 +256,13 @@ async def process_monday_request(item_id, client_name, job_type,
             conversations[user_key] = []
 
         intent = detect_intent(message)
-        if intent == "email":
-    return await handle_email_command(
-        message,
-        context_dropbox_url=dropbox_url,
-        context_job_type=job_type,
-        context_client_name=client_name
+   if intent == "email":
+            return await handle_email_command(
+                message,
+                context_dropbox_url=dropbox_url,
+                context_job_type=job_type,
+                context_client_name=client_name
+            )
     )
         need_estimate   = is_estimate_request(message)
         message_content = []
