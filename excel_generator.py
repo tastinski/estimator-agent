@@ -1,6 +1,7 @@
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image as XLImage
+from openpyxl.utils import get_column_letter
 from datetime import datetime
 import re
 import os
@@ -14,303 +15,330 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws = wb.active
     ws.title = "Estimate"
 
-    orange     = "F97316"
-    gray       = "9CA3AF"
-    light_gray = "F3F4F6"
+    # ── Цвета ────────────────────────────────
+    black      = "000000"
     white      = "FFFFFF"
-    dark_text  = "1F2937"
+    light_gray = "F5F5F5"
+    mid_gray   = "D0D0D0"
+    dark_gray  = "404040"
 
-    orange_fill = PatternFill("solid", fgColor=orange)
-    gray_fill   = PatternFill("solid", fgColor=gray)
-    light_fill  = PatternFill("solid", fgColor=light_gray)
-    white_fill  = PatternFill("solid", fgColor=white)
+    black_fill    = PatternFill("solid", fgColor=black)
+    gray_fill     = PatternFill("solid", fgColor=light_gray)
+    midgray_fill  = PatternFill("solid", fgColor=mid_gray)
+    white_fill    = PatternFill("solid", fgColor=white)
 
-    white_bold  = Font(name="Calibri", color=white, bold=True, size=11)
-    white_large = Font(name="Calibri", color=white, bold=True, size=24)
-    dark_font   = Font(name="Calibri", color=dark_text, size=11)
-    dark_bold   = Font(name="Calibri", color=dark_text, bold=True, size=11)
-    dark_italic = Font(name="Calibri", color=gray, size=10, italic=True)
+    # ── Шрифты ───────────────────────────────
+    font_title    = Font(name="Calibri", size=20, bold=True, color=black)
+    font_bold     = Font(name="Calibri", size=10, bold=True, color=black)
+    font_bold_wh  = Font(name="Calibri", size=10, bold=True, color=white)
+    font_normal   = Font(name="Calibri", size=10, color=black)
+    font_small    = Font(name="Calibri", size=9,  color=dark_gray)
+    font_total    = Font(name="Calibri", size=12, bold=True, color=black, underline="single")
 
-    center      = Alignment(horizontal="center", vertical="center")
-    left        = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    right_align = Alignment(horizontal="right", vertical="center")
+    # ── Выравнивание ─────────────────────────
+    left   = Alignment(horizontal="left",  vertical="top", wrap_text=True)
+    right  = Alignment(horizontal="right", vertical="center")
+    center = Alignment(horizontal="center",vertical="center")
 
-    ws.column_dimensions["A"].width = 75
-    ws.column_dimensions["B"].width = 10
-    ws.column_dimensions["C"].width = 12
-    ws.column_dimensions["D"].width = 16
-    ws.column_dimensions["E"].width = 16
+    # ── Границы ──────────────────────────────
+    thin   = Side(style="thin",   color=mid_gray)
+    thick  = Side(style="medium", color=black)
 
-    row = 1
+    def border(top=None, bottom=None, left=None, right=None):
+        return Border(top=top, bottom=bottom, left=left, right=right)
 
-    # Логотип
-    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.jpg")
-    if os.path.exists(logo_path):
-        img        = XLImage(logo_path)
-        img.width  = 90
-        img.height = 90
-        ws.add_image(img, "D1")
-        ws.row_dimensions[1].height = 70
-        ws.row_dimensions[2].height = 20
-        ws.row_dimensions[3].height = 20
-        row = 4
+    thin_border  = Border(top=thin, bottom=thin, left=thin, right=thin)
+    thick_bottom = Border(bottom=thick)
+    bottom_only  = Border(bottom=Side(style="thin", color=mid_gray))
 
-    # Шапка — оранжевая
-    ws.merge_cells(f"A{row}:E{row}")
-    ws[f"A{row}"]           = "HANDY EDDY HANDYMAN"
-    ws[f"A{row}"].font      = white_large
-    ws[f"A{row}"].fill      = orange_fill
-    ws[f"A{row}"].alignment = center
-    ws.row_dimensions[row].height = 50
-    row += 1
+    # ── Колонки ──────────────────────────────
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 65
+    ws.column_dimensions["C"].width = 16
 
-    ws.merge_cells(f"A{row}:E{row}")
-    ws[f"A{row}"]           = "ESTIMATE"
-    ws[f"A{row}"].font      = Font(name="Calibri", color=white, bold=True, size=14)
-    ws[f"A{row}"].fill      = gray_fill
-    ws[f"A{row}"].alignment = center
-    ws.row_dimensions[row].height = 25
-    row += 1
-
-    date_now = datetime.now().strftime("%B %d, %Y")
-    est_num  = f"EST-{datetime.now().strftime('%Y%m%d%H%M')}"
-    ws.merge_cells(f"A{row}:E{row}")
-    ws[f"A{row}"]           = f"Date: {date_now}     Estimate #: {est_num}"
-    ws[f"A{row}"].font      = Font(name="Calibri", color=dark_text, size=10)
-    ws[f"A{row}"].fill      = light_fill
-    ws[f"A{row}"].alignment = center
-    ws.row_dimensions[row].height = 20
-    row += 2
-
+    # ── Парсинг данных ────────────────────────
     def get_field(pattern, text):
         match = re.search(pattern, text, re.IGNORECASE)
         return match.group(1).strip().lstrip("*").strip() if match else ""
 
     def clean_labor_desc(desc):
-        """Убираем слово labor и упоминания часов из описания"""
-        # Убираем "X hours @ $Y/hr" и похожее
         desc = re.sub(r"\s*\(?\d+[\d.]*\s*-?\s*\d*[\d.]*\s*hours?\s*@[^)]*\)?", "", desc, flags=re.IGNORECASE)
         desc = re.sub(r"\s*\(?\d+[\d.]*\s*hours?\s*[^)]*\)?", "", desc, flags=re.IGNORECASE)
-        desc = re.sub(r"\s*[-–—]\s*estimated\s*\d+.*hours?.*$", "", desc, flags=re.IGNORECASE)
-        # Убираем "Labor -" или "Labor:" в начале
         desc = re.sub(r"(?i)^labor\s*[-–—:]?\s*", "", desc)
         desc = re.sub(r"(?i)\s*[-–—]?\s*labor$", "", desc)
         return desc.strip()
 
-    client   = get_field(r"CLIENT:\s*(.+)", estimate_text)
-    phone    = get_field(r"PHONE:\s*(.+)", estimate_text)
-    email    = get_field(r"EMAIL:\s*(.+)", estimate_text)
-    job      = get_field(r"JOB:\s*(.+)", estimate_text)
-    location = get_field(r"LOCATION:\s*(.+)", estimate_text)
-    timeline = get_field(r"TIMELINE:\s*(.+)", estimate_text)
-
-    # Блок клиента
-    ws.merge_cells(f"A{row}:E{row}")
-    ws[f"A{row}"]           = "PREPARED FOR"
-    ws[f"A{row}"].font      = white_bold
-    ws[f"A{row}"].fill      = orange_fill
-    ws[f"A{row}"].alignment = left
-    ws.row_dimensions[row].height = 22
-    row += 1
-
-    for label, value in [
-        ("Client:", client), ("Phone:", phone), ("Email:", email),
-        ("Job Type:", job), ("Location:", location)
-    ]:
-        if value and value.upper() not in ["N/A", "NA", "[PENDING]", "PENDING", ""]:
-            ws.merge_cells(f"A{row}:E{row}")
-            ws[f"A{row}"]           = f"  {label}   {value}"
-            ws[f"A{row}"].font      = dark_font
-            ws[f"A{row}"].fill      = white_fill
-            ws[f"A{row}"].alignment = left
-            ws.row_dimensions[row].height = 18
-            row += 1
-
-    row += 1
+    client_val  = get_field(r"CLIENT:\s*(.+)",   estimate_text)
+    phone_val   = get_field(r"PHONE:\s*(.+)",    estimate_text)
+    email_val   = get_field(r"EMAIL:\s*(.+)",    estimate_text)
+    job_val     = get_field(r"JOB:\s*(.+)",      estimate_text)
+    location_val= get_field(r"LOCATION:\s*(.+)", estimate_text)
+    timeline_val= get_field(r"TIMELINE:\s*(.+)", estimate_text)
 
     # Парсим breakdown
     breakdown_match = re.search(
         r"BREAKDOWN:(.*?)(?:SUBTOTAL|TOTAL ESTIMATE|$)",
         estimate_text, re.DOTALL | re.IGNORECASE
     )
-
     labor_items    = []
     material_total = 0.0
 
     if breakdown_match:
-        breakdown = breakdown_match.group(1)
-        items     = re.findall(r"-\s*(.+?):\s*\$?([\d,]+)", breakdown)
+        items = re.findall(r"-\s*(.+?):\s*\$?([\d,]+)", breakdown_match.group(1))
         for desc, cost in items:
             desc     = desc.strip().lstrip("*").strip()
             cost_val = float(cost.replace(",", ""))
             if "labor" in desc.lower() or "labour" in desc.lower():
-                labor_items.append((desc, cost_val))
+                labor_items.append((clean_labor_desc(desc), cost_val))
             else:
                 material_total += cost_val
 
-    # ── LABOR секция ──────────────────────────
-    ws.merge_cells(f"A{row}:E{row}")
-    ws[f"A{row}"]           = "LABOR"
-    ws[f"A{row}"].font      = white_bold
-    ws[f"A{row}"].fill      = gray_fill
-    ws[f"A{row}"].alignment = left
-    ws.row_dimensions[row].height = 22
-    row += 1
-
-    labor_start_row = row
-    labor_total     = 0.0
-
-    for i, (desc, cost_val) in enumerate(labor_items):
-        fill = light_fill if i % 2 == 0 else white_fill
-        labor_total += cost_val
-
-        clean_desc = clean_labor_desc(desc)
-
-        ws.merge_cells(f"A{row}:D{row}")
-        ws[f"A{row}"]               = f"    • {clean_desc}"
-        ws[f"A{row}"].font          = dark_font
-        ws[f"A{row}"].fill          = fill
-        ws[f"A{row}"].alignment     = left
-        ws[f"E{row}"]               = cost_val
-        ws[f"E{row}"].font          = dark_font
-        ws[f"E{row}"].fill          = fill
-        ws[f"E{row}"].number_format = "$#,##0.00"
-        ws[f"E{row}"].alignment     = right_align
-        ws.row_dimensions[row].height = 20
-        row += 1
-
-    labor_end_row = row - 1
-    row += 1
-
-    # ── MATERIALS секция ──────────────────────
-    ws.merge_cells(f"A{row}:D{row}")
-    ws[f"A{row}"]               = "  Materials (estimated)"
-    ws[f"A{row}"].font          = dark_font
-    ws[f"A{row}"].fill          = white_fill
-    ws[f"A{row}"].alignment     = left
-    ws[f"E{row}"]               = material_total
-    ws[f"E{row}"].font          = dark_font
-    ws[f"E{row}"].fill          = white_fill
-    ws[f"E{row}"].number_format = "$#,##0.00"
-    ws[f"E{row}"].alignment     = right_align
-    ws.row_dimensions[row].height = 20
-    row += 2
-
-    # ── SUBTOTALS ─────────────────────────────
-    subtotal_lab_row = row
-    ws.merge_cells(f"A{row}:D{row}")
-    ws[f"A{row}"]               = "ESTIMATED SUBTOTAL LABOR"
-    ws[f"A{row}"].font          = dark_bold
-    ws[f"A{row}"].fill          = light_fill
-    ws[f"E{row}"]               = f"=SUM(E{labor_start_row}:E{labor_end_row})" if labor_items else 0
-    ws[f"E{row}"].font          = dark_bold
-    ws[f"E{row}"].fill          = light_fill
-    ws[f"E{row}"].number_format = "$#,##0.00"
-    ws[f"E{row}"].alignment     = right_align
-    ws.row_dimensions[row].height = 22
-    row += 1
-
-    subtotal_mat_row = row
-    ws.merge_cells(f"A{row}:D{row}")
-    ws[f"A{row}"]               = "ESTIMATED SUBTOTAL MATERIALS"
-    ws[f"A{row}"].font          = dark_bold
-    ws[f"A{row}"].fill          = light_fill
-    ws[f"E{row}"]               = material_total
-    ws[f"E{row}"].font          = dark_bold
-    ws[f"E{row}"].fill          = light_fill
-    ws[f"E{row}"].number_format = "$#,##0.00"
-    ws[f"E{row}"].alignment     = right_align
-    ws.row_dimensions[row].height = 22
-    row += 1
-
-    subtotal_row = row
-    ws.merge_cells(f"A{row}:D{row}")
-    ws[f"A{row}"]               = "SUBTOTAL"
-    ws[f"A{row}"].font          = dark_bold
-    ws[f"A{row}"].fill          = light_fill
-    ws[f"E{row}"]               = f"=E{subtotal_lab_row}+E{subtotal_mat_row}"
-    ws[f"E{row}"].font          = dark_bold
-    ws[f"E{row}"].fill          = light_fill
-    ws[f"E{row}"].number_format = "$#,##0.00"
-    ws[f"E{row}"].alignment     = right_align
-    ws.row_dimensions[row].height = 22
-    row += 1
-
-    # Discount
-    discount_row = row
-    ws[f"A{row}"]               = "DISCOUNT %"
-    ws[f"A{row}"].font          = dark_bold
-    ws[f"A{row}"].fill          = white_fill
-    ws[f"B{row}"]               = 0
-    ws[f"B{row}"].font          = dark_bold
-    ws[f"B{row}"].fill          = white_fill
-    ws[f"B{row}"].number_format = "0%"
-    ws[f"B{row}"].alignment     = center
-    ws[f"C{row}"]               = "(edit %)"
-    ws[f"C{row}"].font          = dark_italic
-    ws[f"C{row}"].fill          = white_fill
-    ws[f"D{row}"].fill          = white_fill
-    ws[f"E{row}"]               = f"=-B{row}*E{subtotal_row}"
-    ws[f"E{row}"].font          = dark_bold
-    ws[f"E{row}"].fill          = white_fill
-    ws[f"E{row}"].number_format = "$#,##0.00"
-    ws[f"E{row}"].alignment     = right_align
-    ws.row_dimensions[row].height = 22
-    row += 1
-
-    # Total — оранжевый
-    ws.merge_cells(f"A{row}:D{row}")
-    ws[f"A{row}"]               = "TOTAL ESTIMATE"
-    ws[f"A{row}"].font          = Font(name="Calibri", color=white, bold=True, size=14)
-    ws[f"A{row}"].fill          = orange_fill
-    ws[f"A{row}"].alignment     = center
-    ws[f"E{row}"]               = f"=E{subtotal_row}+E{discount_row}"
-    ws[f"E{row}"].font          = Font(name="Calibri", color=white, bold=True, size=14)
-    ws[f"E{row}"].fill          = orange_fill
-    ws[f"E{row}"].number_format = "$#,##0.00"
-    ws[f"E{row}"].alignment     = right_align
-    ws.row_dimensions[row].height = 35
-    row += 2
-
-    if timeline:
-        ws.merge_cells(f"A{row}:E{row}")
-        ws[f"A{row}"]      = f"Estimated Timeline: {timeline}"
-        ws[f"A{row}"].font = dark_font
-        ws.row_dimensions[row].height = 18
-        row += 2
-
-    # Notes
+    # Парсим notes
     notes_match = re.search(r"NOTES:(.*?)$", estimate_text, re.DOTALL | re.IGNORECASE)
+    notes_lines = []
     if notes_match:
-        ws.merge_cells(f"A{row}:E{row}")
-        ws[f"A{row}"]      = "NOTES & CONDITIONS"
-        ws[f"A{row}"].font = white_bold
-        ws[f"A{row}"].fill = gray_fill
-        ws.row_dimensions[row].height = 20
-        row += 1
-        notes_text  = notes_match.group(1).strip()
         notes_lines = [
-            l.strip().lstrip("-*").strip()
-            for l in notes_text.split("\n")
+            l.strip().lstrip("-*•").strip()
+            for l in notes_match.group(1).strip().split("\n")
             if l.strip() and len(l.strip()) > 5
-        ]
-        for note in notes_lines[:6]:
-            ws.merge_cells(f"A{row}:E{row}")
-            ws[f"A{row}"]           = f"  • {note}"
-            ws[f"A{row}"].font      = Font(name="Calibri", color=dark_text, size=10)
-            ws[f"A{row}"].fill      = white_fill
-            ws[f"A{row}"].alignment = Alignment(wrap_text=True, vertical="top")
+        ][:8]
+
+    # ── Номер estimate ────────────────────────
+    est_num  = datetime.now().strftime("%y%m%d%H%M")
+    date_now = datetime.now().strftime("%y/%m/%d")
+
+    row = 1
+
+    # ── ШАПКА ────────────────────────────────
+    # Номер и дата
+    ws.row_dimensions[row].height = 24
+    ws.merge_cells(f"A{row}:C{row}")
+    ws[f"A{row}"] = f"#{est_num}"
+    ws[f"A{row}"].font      = Font(name="Calibri", size=11, bold=True, color=black)
+    ws[f"A{row}"].alignment = left
+    row += 1
+
+    # ESTIMATE заголовок
+    ws.row_dimensions[row].height = 36
+    ws.merge_cells(f"A{row}:B{row}")
+    ws[f"A{row}"]           = "ESTIMATE"
+    ws[f"A{row}"].font      = font_title
+    ws[f"A{row}"].alignment = Alignment(horizontal="left", vertical="center")
+
+    # Логотип справа
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.jpg")
+    if os.path.exists(logo_path):
+        img        = XLImage(logo_path)
+        img.width  = 80
+        img.height = 80
+        ws.add_image(img, f"C{row}")
+        ws.row_dimensions[row].height = 60
+    row += 1
+
+    # DATE
+    ws.row_dimensions[row].height = 18
+    ws.merge_cells(f"A{row}:C{row}")
+    ws[f"A{row}"]           = f"DATE: {date_now}"
+    ws[f"A{row}"].font      = font_normal
+    ws[f"A{row}"].alignment = left
+    row += 1
+
+    ws.row_dimensions[row].height = 8
+    row += 1  # пустая строка
+
+    # ── ДВЕ КОЛОНКИ: подрядчик и клиент ──────
+    contractor_row = row
+    ws.row_dimensions[row].height = 14
+
+    # Подрядчик (левая колонка — B)
+    contractor_lines = [
+        "Qirim LLC",
+        "1105 E Orange Grove Blvd, Pasadena, CA 91104",
+        "adam@handyeddy.com",
+        "323 763 8686"
+    ]
+
+    # Клиент (правая колонка — C)
+    client_lines = []
+    if client_val and client_val.upper() not in ["N/A", "NA", ""]:
+        client_lines.append(client_val)
+    if location_val and location_val.upper() not in ["N/A", "NA", ""]:
+        client_lines.append(location_val)
+    if email_val and email_val.upper() not in ["N/A", "NA", ""]:
+        client_lines.append(email_val)
+    if phone_val and phone_val.upper() not in ["N/A", "NA", ""]:
+        client_lines.append(phone_val)
+
+    max_lines = max(len(contractor_lines), len(client_lines))
+    for i in range(max_lines):
+        ws.row_dimensions[row].height = 16
+        if i < len(contractor_lines):
+            ws[f"B{row}"]           = contractor_lines[i]
+            ws[f"B{row}"].font      = Font(name="Calibri", size=10,
+                                           bold=(i == 0), color=black)
+            ws[f"B{row}"].alignment = left
+        if i < len(client_lines):
+            ws[f"C{row}"]           = client_lines[i]
+            ws[f"C{row}"].font      = Font(name="Calibri", size=10,
+                                           bold=(i == 0), color=black)
+            ws[f"C{row}"].alignment = left
+        row += 1
+
+    ws.row_dimensions[row].height = 8
+    row += 1  # пустая строка
+
+    # ── ЗАГОЛОВОК ТАБЛИЦЫ ────────────────────
+    ws.row_dimensions[row].height = 22
+    ws[f"B{row}"]           = "Description"
+    ws[f"B{row}"].font      = font_bold
+    ws[f"B{row}"].fill      = midgray_fill
+    ws[f"B{row}"].alignment = left
+    ws[f"B{row}"].border    = thin_border
+    ws[f"C{row}"]           = "Labor cost"
+    ws[f"C{row}"].font      = font_bold
+    ws[f"C{row}"].fill      = midgray_fill
+    ws[f"C{row}"].alignment = right
+    ws[f"C{row}"].border    = thin_border
+    row += 1
+
+    # ── LABOR СТРОКИ ─────────────────────────
+    labor_start = row
+    for i, (desc, cost_val) in enumerate(labor_items):
+        fill = gray_fill if i % 2 == 0 else white_fill
+        ws.row_dimensions[row].height = 40
+        ws[f"B{row}"]               = f"- {desc}"
+        ws[f"B{row}"].font          = font_normal
+        ws[f"B{row}"].fill          = fill
+        ws[f"B{row}"].alignment     = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        ws[f"B{row}"].border        = bottom_only
+        ws[f"C{row}"]               = cost_val
+        ws[f"C{row}"].font          = font_normal
+        ws[f"C{row}"].fill          = fill
+        ws[f"C{row}"].alignment     = right
+        ws[f"C{row}"].number_format = "$#,##0.00"
+        ws[f"C{row}"].border        = bottom_only
+        row += 1
+
+    labor_end = row - 1
+
+    # ── MATERIALS СТРОКА ─────────────────────
+    ws.row_dimensions[row].height = 18
+    ws[f"B{row}"]               = "- Materials and additional work paid separately. All receipts provided."
+    ws[f"B{row}"].font          = Font(name="Calibri", size=9, italic=True, color=dark_gray)
+    ws[f"B{row}"].alignment     = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    ws[f"B{row}"].border        = bottom_only
+    ws[f"C{row}"]               = ""
+    ws[f"C{row}"].border        = bottom_only
+    row += 1
+
+    ws.row_dimensions[row].height = 8
+    row += 1  # пустая строка
+
+    # ── SUBTOTAL ─────────────────────────────
+    subtotal_row = row
+    ws.row_dimensions[row].height = 20
+    ws[f"B{row}"]               = "Subtotal"
+    ws[f"B{row}"].font          = font_bold
+    ws[f"B{row}"].alignment     = Alignment(horizontal="left", vertical="center")
+    ws[f"B{row}"].border        = thick_bottom
+    ws[f"C{row}"]               = f"=SUM(C{labor_start}:C{labor_end})"
+    ws[f"C{row}"].font          = font_bold
+    ws[f"C{row}"].alignment     = right
+    ws[f"C{row}"].number_format = "$#,##0.00"
+    ws[f"C{row}"].border        = thick_bottom
+    row += 1
+
+    # ── ESTIMATED MATERIALS SUBTOTAL ─────────
+    mat_row = row
+    ws.row_dimensions[row].height = 20
+    ws[f"B{row}"]               = "Estimated Materials Subtotal"
+    ws[f"B{row}"].font          = font_bold
+    ws[f"B{row}"].alignment     = Alignment(horizontal="left", vertical="center")
+    ws[f"B{row}"].border        = thick_bottom
+    ws[f"C{row}"]               = material_total if material_total > 0 else 0
+    ws[f"C{row}"].font          = font_bold
+    ws[f"C{row}"].alignment     = right
+    ws[f"C{row}"].number_format = "$#,##0.00"
+    ws[f"C{row}"].border        = thick_bottom
+    row += 1
+
+    # ── DISCOUNT ─────────────────────────────
+    discount_row = row
+    ws.row_dimensions[row].height = 20
+
+    # Процент скидки в колонке B (редактируемый)
+    ws[f"B{row}"]               = "Discount %"
+    ws[f"B{row}"].font          = font_bold
+    ws[f"B{row}"].alignment     = Alignment(horizontal="left", vertical="center")
+
+    # Ячейка с процентом — можно менять
+    # Используем A{row} для процента
+    ws[f"A{row}"]               = 0.10  # 10% по умолчанию
+    ws[f"A{row}"].number_format = "0%"
+    ws[f"A{row}"].font          = font_bold
+    ws[f"A{row}"].alignment     = center
+
+    ws[f"C{row}"]               = f"=-A{row}*(C{subtotal_row}+C{mat_row})"
+    ws[f"C{row}"].font          = font_bold
+    ws[f"C{row}"].alignment     = right
+    ws[f"C{row}"].number_format = "$#,##0.00"
+    ws[f"C{row}"].border        = thick_bottom
+    row += 1
+
+    # ── TOTAL ────────────────────────────────
+    total_row = row
+    ws.row_dimensions[row].height = 24
+    ws.merge_cells(f"A{row}:B{row}")
+    ws[f"A{row}"]               = "TOTAL"
+    ws[f"A{row}"].font          = font_total
+    ws[f"A{row}"].alignment     = Alignment(horizontal="left", vertical="center")
+    ws[f"A{row}"].border        = Border(bottom=Side(style="double", color=black))
+    ws[f"C{row}"]               = f"=C{subtotal_row}+C{mat_row}+C{discount_row}"
+    ws[f"C{row}"].font          = font_total
+    ws[f"C{row}"].alignment     = right
+    ws[f"C{row}"].number_format = "$#,##0.00"
+    ws[f"C{row}"].border        = Border(bottom=Side(style="double", color=black))
+    row += 2
+
+    # ── TIMELINE ─────────────────────────────
+    if timeline_val:
+        ws.row_dimensions[row].height = 16
+        ws.merge_cells(f"A{row}:C{row}")
+        ws[f"A{row}"]           = f"Estimated Timeline: {timeline_val}"
+        ws[f"A{row}"].font      = font_small
+        ws[f"A{row}"].alignment = left
+        row += 1
+
+    row += 1
+
+    # ── NOTES ────────────────────────────────
+    if notes_lines:
+        ws.row_dimensions[row].height = 16
+        ws.merge_cells(f"A{row}:C{row}")
+        ws[f"A{row}"]           = "Notes:"
+        ws[f"A{row}"].font      = Font(name="Calibri", size=10, bold=True,
+                                       underline="single", color=black)
+        ws[f"A{row}"].alignment = left
+        row += 1
+
+        for note in notes_lines:
             ws.row_dimensions[row].height = 30
+            ws.merge_cells(f"A{row}:C{row}")
+            ws[f"A{row}"]           = f"- {note}"
+            ws[f"A{row}"].font      = font_small
+            ws[f"A{row}"].alignment = Alignment(horizontal="left", vertical="top",
+                                                wrap_text=True)
             row += 1
 
-    # Footer — серый
     row += 1
-    ws.merge_cells(f"A{row}:E{row}")
-    ws[f"A{row}"]           = "Handy Eddy Handyman  |  adam@handyeddy.com  |  (323) 763-8686"
-    ws[f"A{row}"].font      = Font(name="Calibri", color=white, size=10)
-    ws[f"A{row}"].fill      = gray_fill
+
+    # ── FOOTER ───────────────────────────────
+    ws.row_dimensions[row].height = 16
+    ws.merge_cells(f"A{row}:C{row}")
+    ws[f"A{row}"]           = "Qirim LLC  |  adam@handyeddy.com  |  323 763 8686"
+    ws[f"A{row}"].font      = Font(name="Calibri", size=9, color=dark_gray)
     ws[f"A{row}"].alignment = center
-    ws.row_dimensions[row].height = 20
+    ws[f"A{row}"].border    = Border(top=Side(style="thin", color=mid_gray))
 
     wb.save(filepath)
     return filepath
