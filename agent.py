@@ -111,7 +111,7 @@ def is_estimate_request(message):
 
 
 # ─────────────────────────────────────────
-# PIPELINE — Telegram (создаёт карточку в Monday)
+# PIPELINE — Telegram
 # ─────────────────────────────────────────
 
 async def run_pipeline(assistant_message, existing_client_folder=None):
@@ -144,7 +144,7 @@ async def run_pipeline(assistant_message, existing_client_folder=None):
 
 
 # ─────────────────────────────────────────
-# PIPELINE — Monday (Excel в Dropbox + обновляет link в карточке)
+# PIPELINE — Monday
 # ─────────────────────────────────────────
 
 async def run_pipeline_monday(assistant_message, client_name, item_id=None):
@@ -157,10 +157,8 @@ async def run_pipeline_monday(assistant_message, client_name, item_id=None):
             pdf_path, client_name, job_type,
             existing_folder=client_name
         )
-        # Обновляем ссылку в существующей карточке Monday
         if item_id:
             update_monday_item_link(item_id, dropbox_url)
-
         return f'\n\n✅ Excel создан\n📁 <a href="{dropbox_url}">Открыть в Dropbox</a>'
     except Exception as e:
         return f"\n\n⚠️ Пайплайн ошибка: {str(e)}"
@@ -172,7 +170,6 @@ async def run_pipeline_monday(assistant_message, client_name, item_id=None):
 
 async def handle_email_command(message, context_dropbox_url="", context_job_type="", context_client_name=""):
     try:
-        # Проверяем есть ли email прямо в сообщении
         email_in_message = re.search(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", message)
 
         if email_in_message:
@@ -189,7 +186,6 @@ async def handle_email_command(message, context_dropbox_url="", context_job_type
             else:
                 return f"❌ Ошибка отправки на {direct_email}"
 
-        # Email не указан — ищем клиента в Monday по имени
         patterns = [
             r"send email(?:\s+to)?\s+(.+)",
             r"отправь(?:\s+имейл|\s+email|\s+письмо)(?:\s+to|\s+клиенту)?\s+(.+)",
@@ -243,6 +239,7 @@ async def handle_email_command(message, context_dropbox_url="", context_job_type
     except Exception as e:
         return f"❌ Email error: {str(e)}"
 
+
 # ─────────────────────────────────────────
 # MONDAY REQUEST
 # ─────────────────────────────────────────
@@ -256,14 +253,15 @@ async def process_monday_request(item_id, client_name, job_type,
             conversations[user_key] = []
 
         intent = detect_intent(message)
-   if intent == "email":
+
+        if intent == "email":
             return await handle_email_command(
                 message,
                 context_dropbox_url=dropbox_url,
                 context_job_type=job_type,
                 context_client_name=client_name
             )
-    )
+
         need_estimate   = is_estimate_request(message)
         message_content = []
 
@@ -347,7 +345,6 @@ async def process_monday_request(item_id, client_name, job_type,
 
         conversations[user_key].append({"role": "assistant", "content": assistant_message})
 
-        # Excel в Dropbox + обновляем link в карточке, НЕ создаём новую
         if "TOTAL ESTIMATE:" in assistant_message and need_estimate:
             pipeline_result = await run_pipeline_monday(
                 assistant_message,
