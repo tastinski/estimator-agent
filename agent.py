@@ -170,8 +170,26 @@ async def run_pipeline_monday(assistant_message, client_name, item_id=None):
 # EMAIL HANDLER
 # ─────────────────────────────────────────
 
-async def handle_email_command(message):
+async def handle_email_command(message, context_dropbox_url="", context_job_type="", context_client_name=""):
     try:
+        # Проверяем есть ли email прямо в сообщении
+        email_in_message = re.search(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", message)
+
+        if email_in_message:
+            direct_email = email_in_message.group(0)
+            sent = send_estimate_email(
+                client_email=direct_email,
+                client_name=context_client_name or "Client",
+                job_type=context_job_type or "Handyman Estimate",
+                pdf_path=None,
+                dropbox_url=context_dropbox_url or ""
+            )
+            if sent:
+                return f"✅ Email отправлен на {direct_email}"
+            else:
+                return f"❌ Ошибка отправки на {direct_email}"
+
+        # Email не указан — ищем клиента в Monday по имени
         patterns = [
             r"send email(?:\s+to)?\s+(.+)",
             r"отправь(?:\s+имейл|\s+email|\s+письмо)(?:\s+to|\s+клиенту)?\s+(.+)",
@@ -224,7 +242,6 @@ async def handle_email_command(message):
 
     except Exception as e:
         return f"❌ Email error: {str(e)}"
-
 
 # ─────────────────────────────────────────
 # MONDAY REQUEST
