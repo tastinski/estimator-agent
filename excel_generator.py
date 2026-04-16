@@ -15,47 +15,58 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.title = "Estimate"
 
     from openpyxl.worksheet.page import PageMargins
-    ws.page_setup.orientation = "portrait"
-    ws.page_setup.paperSize   = 1
-    ws.page_setup.fitToPage   = True
-    ws.page_setup.fitToWidth  = 1
-    ws.page_setup.fitToHeight = 0
-    ws.page_margins = PageMargins(left=0.5, right=0.5, top=0.75, bottom=0.75)
+    ws.page_setup.orientation  = "portrait"
+    ws.page_setup.paperSize    = 1  # Letter
+    ws.page_setup.fitToPage    = True
+    ws.page_setup.fitToWidth   = 1
+    ws.page_setup.fitToHeight  = 0
+    ws.page_margins = PageMargins(left=0.6, right=0.6, top=0.75, bottom=0.75)
 
-    # ── Цвета ────────────────────────────────
+    # Скрываем сетку
+    ws.sheet_view.showGridLines = False
+    ws.print_options.gridLines  = False
+
+    # Скрываем все колонки кроме A и B
+    for col_letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        ws.column_dimensions[col_letter].hidden = True
+
+    # ── Цвета как у Betty ────────────────────
     black     = "000000"
     white     = "FFFFFF"
-    light_gray= "F0F0F0"
-    mid_gray  = "CCCCCC"
-    dark_gray = "555555"
+    light_gray= "F2F2F2"  # очень светлый серый для чередования строк
+    mid_gray  = "AAAAAA"
+    dark_gray = "666666"
+    header_gray = "D9D9D9"  # серый заголовок таблицы
 
     gray_fill   = PatternFill("solid", fgColor=light_gray)
     white_fill  = PatternFill("solid", fgColor=white)
-    header_fill = PatternFill("solid", fgColor="E0E0E0")
+    header_fill = PatternFill("solid", fgColor=header_gray)
 
-    # ── Шрифты ───────────────────────────────
-    font_num   = Font(name="Calibri", size=10, bold=True,  color=black)
-    font_title = Font(name="Calibri", size=18, bold=True,  color=black)
+    # ── Шрифты как у Betty ───────────────────
+    font_num   = Font(name="Calibri", size=11, bold=False, color=black)
+    font_title = Font(name="Calibri", size=16, bold=True,  color=black)
     font_date  = Font(name="Calibri", size=10,             color=black)
+    font_addr_bold = Font(name="Calibri", size=10, bold=True,  color=black)
+    font_addr  = Font(name="Calibri", size=10,             color=black)
     font_hdr   = Font(name="Calibri", size=10, bold=True,  color=black)
     font_row   = Font(name="Calibri", size=10,             color=black)
     font_small = Font(name="Calibri", size=9,  italic=True,color=dark_gray)
     font_sub   = Font(name="Calibri", size=10, bold=True,  color=black)
     font_total = Font(name="Calibri", size=11, bold=True,  color=black, underline="single")
+    font_note_hdr = Font(name="Calibri", size=10, bold=False, underline="single", color=black)
     font_note  = Font(name="Calibri", size=9,              color=dark_gray)
+    font_footer= Font(name="Calibri", size=9,              color=dark_gray)
 
     # ── Выравнивание ─────────────────────────
     left_top  = Alignment(horizontal="left",  vertical="top",    wrap_text=True)
     left_mid  = Alignment(horizontal="left",  vertical="center", wrap_text=False)
+    left_wrap = Alignment(horizontal="left",  vertical="center", wrap_text=True)
     right_mid = Alignment(horizontal="right", vertical="center")
     center_mid= Alignment(horizontal="center",vertical="center")
 
     # ── Границы ──────────────────────────────
     def btm(color=mid_gray, style="thin"):
         return Border(bottom=Side(style=style, color=color))
-    def top_btm(color=mid_gray):
-        s = Side(style="thin", color=color)
-        return Border(top=s, bottom=s)
     def full_border(color=mid_gray):
         s = Side(style="thin", color=color)
         return Border(top=s, bottom=s, left=s, right=s)
@@ -63,10 +74,12 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         return Border(bottom=Side(style="double", color=black))
     def thick_btm():
         return Border(bottom=Side(style="medium", color=black))
+    def thin_top():
+        return Border(top=Side(style="thin", color=black))
 
-    # ── Колонки: A=описание, B=цена ──────────
-    ws.column_dimensions["A"].width = 68
-    ws.column_dimensions["B"].width = 16
+    # ── Колонки — широкие чтобы заполнить страницу ──
+    ws.column_dimensions["A"].width = 62
+    ws.column_dimensions["B"].width = 18
 
     # ── Парсинг ──────────────────────────────
     def get_field(pattern, text):
@@ -114,22 +127,21 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     date_now = datetime.now().strftime("%y/%m/%d")
     row = 1
 
-    # ── ШАПКА ────────────────────────────────
-    # Линия сверху
-    ws.row_dimensions[row].height = 4
-    for col in ["A", "B"]:
-        ws[f"{col}{row}"].border = btm(black, "medium")
+    # ── ЛИНИЯ СВЕРХУ ─────────────────────────
+    ws.row_dimensions[row].height = 3
+    ws[f"A{row}"].border = Border(bottom=Side(style="medium", color=black))
+    ws[f"B{row}"].border = Border(bottom=Side(style="medium", color=black))
     row += 1
 
-    # Номер
-    ws.row_dimensions[row].height = 18
+    # ── НОМЕР ────────────────────────────────
+    ws.row_dimensions[row].height = 20
     ws[f"A{row}"]           = f"#{est_num}"
     ws[f"A{row}"].font      = font_num
     ws[f"A{row}"].alignment = left_mid
     row += 1
 
-    # ESTIMATE + лого
-    ws.row_dimensions[row].height = 60
+    # ── ESTIMATE + ЛОГО ──────────────────────
+    ws.row_dimensions[row].height = 70
     ws[f"A{row}"]           = "ESTIMATE"
     ws[f"A{row}"].font      = font_title
     ws[f"A{row}"].alignment = Alignment(horizontal="left", vertical="center")
@@ -137,33 +149,28 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.jpg")
     if os.path.exists(logo_path):
         img        = XLImage(logo_path)
-        img.width  = 80
-        img.height = 80
+        img.width  = 100
+        img.height = 100
         ws.add_image(img, f"B{row}")
     row += 1
 
-    # DATE
-    ws.row_dimensions[row].height = 18
+    # ── DATE ─────────────────────────────────
+    ws.row_dimensions[row].height = 20
     ws[f"A{row}"]           = f"DATE: {date_now}"
     ws[f"A{row}"].font      = font_date
     ws[f"A{row}"].alignment = left_mid
     row += 1
 
-    # Разделитель
-    ws.row_dimensions[row].height = 4
-    for col in ["A", "B"]:
-        ws[f"{col}{row}"].border = btm(black, "thin")
+    # ── РАЗДЕЛИТЕЛЬ ──────────────────────────
+    ws.row_dimensions[row].height = 3
+    ws[f"A{row}"].border = btm(black, "thin")
+    ws[f"B{row}"].border = btm(black, "thin")
     row += 1
 
-    ws.row_dimensions[row].height = 8
+    ws.row_dimensions[row].height = 10
     row += 1
 
-    # ── ДВЕ КОЛОНКИ ЧЕРЕЗ MERGE ──────────────
-    # Подрядчик в A (левая половина), клиент справа через merge
-    # Используем print_cols чтобы не ломать структуру таблицы
-    # Решение: A содержит обе стороны через \t разделитель нет
-    # Правильное решение: временно меняем ширину колонок
-
+    # ── АДРЕСА ───────────────────────────────
     contractor_lines = [
         ("Qirim LLC", True),
         ("1105 E Orange Grove Blvd, Pasadena, CA 91104", False),
@@ -180,32 +187,23 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     if phone_val    and phone_val.upper()    not in ["N/A","NA",""]:
         client_lines.append((phone_val, False))
 
-    # Для двух колонок адресов используем колонку A (левая) и B (правая)
-    # Временно меняем ширину для секции адресов
-    ws.column_dimensions["A"].width = 40
-    ws.column_dimensions["B"].width = 30
-
     max_addr = max(len(contractor_lines), len(client_lines), 1)
     for i in range(max_addr):
-        ws.row_dimensions[row].height = 15
+        ws.row_dimensions[row].height = 16
         if i < len(contractor_lines):
             txt, bold = contractor_lines[i]
             ws[f"A{row}"]           = txt
-            ws[f"A{row}"].font      = Font(name="Calibri", size=10, bold=bold, color=black)
+            ws[f"A{row}"].font      = font_addr_bold if bold else font_addr
             ws[f"A{row}"].alignment = left_mid
         if i < len(client_lines):
             txt, bold = client_lines[i]
             ws[f"B{row}"]           = txt
-            ws[f"B{row}"].font      = Font(name="Calibri", size=10, bold=bold, color=black)
+            ws[f"B{row}"].font      = font_addr_bold if bold else font_addr
             ws[f"B{row}"].alignment = left_mid
         row += 1
 
-    ws.row_dimensions[row].height = 10
+    ws.row_dimensions[row].height = 12
     row += 1
-
-    # Возвращаем ширину для таблицы
-    ws.column_dimensions["A"].width = 68
-    ws.column_dimensions["B"].width = 16
 
     # ── ЗАГОЛОВОК ТАБЛИЦЫ ────────────────────
     ws.row_dimensions[row].height = 22
@@ -224,8 +222,8 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     # ── LABOR СТРОКИ ─────────────────────────
     labor_start = row
     for i, (desc, cost_val) in enumerate(labor_items):
-        lines_needed = max(1, len(desc) // 75 + 1)
-        ws.row_dimensions[row].height = max(25, lines_needed * 14)
+        lines_needed = max(1, len(desc) // 65 + 1)
+        ws.row_dimensions[row].height = max(20, lines_needed * 15)
         fill = gray_fill if i % 2 == 0 else white_fill
 
         ws[f"A{row}"]               = f"- {desc}"
@@ -233,7 +231,6 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         ws[f"A{row}"].fill          = fill
         ws[f"A{row}"].alignment     = left_top
         ws[f"A{row}"].border        = btm()
-
         ws[f"B{row}"]               = cost_val
         ws[f"B{row}"].font          = font_row
         ws[f"B{row}"].fill          = fill
@@ -244,7 +241,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
 
     labor_end = row - 1
 
-    # Materials note
+    # ── MATERIALS NOTE ───────────────────────
     ws.row_dimensions[row].height = 16
     ws[f"A{row}"]           = "- Materials and additional work paid separately. All receipts provided."
     ws[f"A{row}"].font      = font_small
@@ -284,25 +281,13 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"B{row}"].border        = thick_btm()
     row += 1
 
-    # ── DISCOUNT — РЕДАКТИРУЕМЫЙ ─────────────
-    # Процент хранится в ячейке A, формула в B ссылается на A
-    discount_pct_row = row
+    # ── DISCOUNT %10 ─────────────────────────
+    discount_row = row
     ws.row_dimensions[row].height = 20
-    ws[f"A{row}"]               = "Discount %"
+    ws[f"A{row}"]               = "Discount %10"
     ws[f"A{row}"].font          = font_sub
     ws[f"A{row}"].alignment     = left_mid
-
-    # Ячейка с процентом — РЕДАКТИРУЕМАЯ, по умолчанию 10%
-    # Вставляем значение 0.10 в конец строки A через комментарий
-    # Используем отдельную ячейку — добавим колонку C только для процента
-    ws.column_dimensions["C"].width = 6
-    ws[f"C{row}"]               = 0.10
-    ws[f"C{row}"].number_format = "0%"
-    ws[f"C{row}"].font          = font_sub
-    ws[f"C{row}"].alignment     = center_mid
-
-    discount_row = row
-    ws[f"B{row}"]               = f"=-C{row}*(B{subtotal_row}+B{mat_row})"
+    ws[f"B{row}"]               = f"=-0.10*(B{subtotal_row}+B{mat_row})"
     ws[f"B{row}"].font          = font_sub
     ws[f"B{row}"].alignment     = right_mid
     ws[f"B{row}"].number_format = "$#,##0.00"
@@ -336,8 +321,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     if notes_lines:
         ws.row_dimensions[row].height = 16
         ws[f"A{row}"]           = "Notes:"
-        ws[f"A{row}"].font      = Font(name="Calibri", size=10, bold=True,
-                                       underline="single", color=black)
+        ws[f"A{row}"].font      = font_note_hdr
         ws[f"A{row}"].alignment = left_mid
         row += 1
         for note in notes_lines:
@@ -351,17 +335,18 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     row += 1
 
     # ── FOOTER ───────────────────────────────
-    ws.row_dimensions[row].height = 4
-    for col in ["A", "B"]:
-        ws[f"{col}{row}"].border = btm(black, "thin")
+    ws.row_dimensions[row].height = 3
+    ws[f"A{row}"].border = Border(bottom=Side(style="thin", color=black))
+    ws[f"B{row}"].border = Border(bottom=Side(style="thin", color=black))
     row += 1
 
     ws.row_dimensions[row].height = 16
     ws.merge_cells(f"A{row}:B{row}")
     ws[f"A{row}"]           = "Qirim LLC  |  adam@handyeddy.com  |  323 763 8686"
-    ws[f"A{row}"].font      = Font(name="Calibri", size=9, color=dark_gray)
+    ws[f"A{row}"].font      = font_footer
     ws[f"A{row}"].alignment = center_mid
 
+    # ── ОБЛАСТЬ ПЕЧАТИ ───────────────────────
     ws.print_area = f"A1:B{row}"
 
     wb.save(filepath)
