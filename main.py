@@ -3,7 +3,7 @@ import httpx
 import json
 import asyncio
 import threading
-import time
+import traceback
 
 from dotenv import load_dotenv
 from flask import Flask, request, Response
@@ -195,16 +195,15 @@ def process_monday_async(item_id, body, user_id=""):
             print(f"Item {item_id} not found in Monday")
             return
 
-        item         = items[0]
-        client_name  = item.get("name", "Client")
-        cols         = {c["id"]: c["text"] for c in item.get("column_values", [])}
-        job_type     = cols.get("text6__1", "")
-        location     = cols.get("text__1", "")
-        phone        = cols.get("phone__1", "")
-        email        = cols.get("email__1", "")
-        dropbox_url  = cols.get("link__1", "")
+        item        = items[0]
+        client_name = item.get("name", "Client")
+        cols        = {c["id"]: c["text"] for c in item.get("column_values", [])}
+        job_type    = cols.get("text6__1", "")
+        location    = cols.get("text__1", "")
+        phone       = cols.get("phone__1", "")
+        email       = cols.get("email__1", "")
+        dropbox_url = cols.get("link__1", "")
 
-        # Ищем папку в Dropbox по номеру + имя клиента
         card_number = cols.get("text5__1", "")
         search_name = f"{card_number} {client_name}".strip() if card_number else client_name
         print(f"Dropbox search: '{search_name}'")
@@ -221,24 +220,9 @@ def process_monday_async(item_id, body, user_id=""):
             if user_id else ""
         )
 
-        global bot_loop
-        if bot_loop:
-            future = asyncio.run_coroutine_threadsafe(
-                process_monday_request(
-                    item_id=item_id,
-                    client_name=search_name,
-                    job_type=job_type,
-                    location=location,
-                    phone=phone,
-                    email=email,
-                    dropbox_url=dropbox_url,
-                    message=clean_body
-                ),
-                bot_loop
-            )
-            response = future.result(timeout=120)
-        else:
-            loop = asyncio.new_event_loop()
+        # Monday всегда на отдельном loop — не блокируем Telegram
+        loop = asyncio.new_event_loop()
+        try:
             response = loop.run_until_complete(
                 process_monday_request(
                     item_id=item_id,
@@ -251,6 +235,7 @@ def process_monday_async(item_id, body, user_id=""):
                     message=clean_body
                 )
             )
+        finally:
             loop.close()
 
         result = post_monday_comment(item_id, f"{mention}{response}")
@@ -258,6 +243,7 @@ def process_monday_async(item_id, body, user_id=""):
 
     except Exception as e:
         print(f"process_monday_async error for item {item_id}: {e}")
+        traceback.print_exc()
 
 
 # ─────────────────────────────────────────
