@@ -6,6 +6,7 @@ import base64
 import json
 import traceback
 import io
+import re as _re
 from PIL import Image
 from dropbox.files import WriteMode
 from dotenv import load_dotenv
@@ -28,14 +29,18 @@ MONDAY_MAIN_BOARD     = 18406712174
 MONDAY_CONTACTS_BOARD = 7023159061
 DROPBOX_ROOT          = "/Aydin Projects 2026"
 
-# Мусорные значения — не отправляем в Monday
 DIRTY_VALUES = ["na", "n/a", "unknown", "needed", "[needed]",
                 "none", "pending", "[pending]", "n\\a", ""]
 
 
 # ─────────────────────────────────────────
-# DROPBOX HELPERS
+# HELPERS
 # ─────────────────────────────────────────
+
+def _normalize(s):
+    """Убираем точки, тире, лишние пробелы для нечёткого поиска"""
+    return _re.sub(r"[.\-_]", " ", s).lower().strip()
+
 
 def get_dbx():
     return dropbox.Dropbox(
@@ -88,14 +93,18 @@ def upload_to_dropbox(file_path, client_name, job_type, existing_folder=None):
         all_entries = list_all_dropbox_entries(dbx, DROPBOX_ROOT)
 
         if existing_folder:
+            needle = _normalize(existing_folder)
             for entry in all_entries:
-                if hasattr(entry, "name") and existing_folder.lower() in entry.name.lower():
+                if not hasattr(entry, "name"):
+                    continue
+                if needle in _normalize(entry.name):
                     folder_name    = entry.name
                     dropbox_folder = entry.path_display
                     file_name      = f"{folder_name} estimate.xlsx"
                     dropbox_path   = f"{dropbox_folder}/{file_name}"
                     with open(file_path, "rb") as f:
                         dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
+                    print(f"Dropbox upload to existing folder: {dropbox_path}")
                     return _get_shared_link(dbx, dropbox_path)
 
         date_str       = datetime.now().strftime("%m%d%y")
@@ -116,7 +125,7 @@ def upload_to_dropbox(file_path, client_name, job_type, existing_folder=None):
             dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
 
         url = _get_shared_link(dbx, dropbox_path)
-        print(f"Dropbox OK: {dropbox_path}")
+        print(f"Dropbox OK new folder: {dropbox_path}")
         return url
 
     except Exception as e:
@@ -145,9 +154,10 @@ def get_dropbox_photos(client_name_part):
         dbx         = get_dbx()
         all_entries = list_all_dropbox_entries(dbx, DROPBOX_ROOT)
 
+        needle        = _normalize(client_name_part)
         client_folder = None
         for entry in all_entries:
-            if hasattr(entry, "name") and client_name_part.lower() in entry.name.lower():
+            if hasattr(entry, "name") and needle in _normalize(entry.name):
                 client_folder = entry.path_display
                 break
 
@@ -362,6 +372,12 @@ def find_client_in_monday(client_name_query):
     except Exception as e:
         print(f"find_client_in_monday error: {e}")
         return None
+
+
+# ─────────────────────────────────────────
+# MONDAY — UPDATE LINK
+# ─────────────────────────────────────────
+
 def update_monday_item_link(item_id, dropbox_url):
     try:
         headers = {"Authorization": MONDAY_API_KEY, "Content-Type": "application/json",
