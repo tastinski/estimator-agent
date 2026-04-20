@@ -55,18 +55,28 @@ async def handle_dropbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if len(args) >= 2:
-        client_name = f"{args[0]} {args[1]}"
-        caption     = " ".join(args[2:]) if len(args) > 2 else ""
-    else:
-        client_name = args[0]
+    # Первый аргумент может быть номером (8 цифр) или именем
+    first_arg = args[0]
+    if first_arg.isdigit() and len(first_arg) == 8:
+        file_number = first_arg
+        client_name = " ".join(args[1:]) if len(args) > 1 else ""
         caption     = ""
+        # Если после имени ещё слова — считаем их caption-ом
+        # Формат: /dropbox 26041314 Roseanne pressure wash only
+        # Тут непросто понять где кончается имя — берём первое слово как имя, остальное caption
+        if len(args) >= 3:
+            client_name = args[1]
+            caption     = " ".join(args[2:])
+    else:
+        file_number = ""
+        client_name = args[0]
+        caption     = " ".join(args[1:]) if len(args) > 1 else ""
 
     await update.message.reply_text(
-        f"📸 Ищу фото в Dropbox для {client_name}... Это займёт 1-2 минуты."
+        f"📸 Ищу фото в Dropbox для {client_name or file_number}... Это займёт 1-2 минуты."
     )
     try:
-        result     = await process_dropbox_photos(user_id, client_name, caption=caption)
+        result     = await process_dropbox_photos(user_id, client_name, caption=caption, file_number=file_number)
         chunk_size = 4000
         for i in range(0, len(result), chunk_size):
             await update.message.reply_text(result[i:i + chunk_size])
@@ -198,15 +208,18 @@ def process_monday_async(item_id, body, user_id=""):
         item        = items[0]
         client_name = item.get("name", "Client")
         cols        = {c["id"]: c["text"] for c in item.get("column_values", [])}
-        job_type    = cols.get("text6__1", "")
-        location    = cols.get("text__1", "")
+
+        # ─── Правильные column IDs для нового Main board ───
+        file_number = cols.get("text5__1", "")       # колонка #
+        job_type    = cols.get("text6__1", "")       # Job description
+        location    = cols.get("location__1", "")    # Location (was text__1 — это было Notes!)
+        notes       = cols.get("text__1", "")        # Notes
         phone       = cols.get("phone__1", "")
         email       = cols.get("email__1", "")
         dropbox_url = cols.get("link__1", "")
 
-        card_number = cols.get("text5__1", "")
-        search_name = f"{card_number} {client_name}".strip() if card_number else client_name
-        print(f"Dropbox search: '{search_name}'")
+        print(f"Parsed from Monday: client='{client_name}' number='{file_number}' "
+              f"job='{job_type}' location='{location}' phone='{phone}' email='{email}'")
 
         clean_body = (body
                       .replace("@AI_Assist", "")
@@ -226,9 +239,11 @@ def process_monday_async(item_id, body, user_id=""):
             response = loop.run_until_complete(
                 process_monday_request(
                     item_id=item_id,
-                    client_name=search_name,
+                    client_name=client_name,
+                    file_number=file_number,
                     job_type=job_type,
                     location=location,
+                    notes=notes,
                     phone=phone,
                     email=email,
                     dropbox_url=dropbox_url,
