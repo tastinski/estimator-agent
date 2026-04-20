@@ -28,7 +28,7 @@ MONDAY_API_KEY        = os.getenv("MONDAY_API_KEY")
 MONDAY_MAIN_BOARD     = 18393766403   # Main board (новый)
 MONDAY_CONTACTS_BOARD = 7023159061    # Contacts board (не менялся)
 MONDAY_FAST_GROUP     = "new_group__1"  # Fast projects Estimate
-DROPBOX_ROOT          = "/Aydin Projects 2026"
+DROPBOX_ROOT          = os.getenv("DROPBOX_ROOT", "/Estimator AI/Projects")
 
 DIRTY_VALUES = ["na", "n/a", "unknown", "needed", "[needed]",
                 "none", "pending", "[pending]", "n\\a", ""]
