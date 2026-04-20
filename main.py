@@ -156,9 +156,11 @@ def monday_webhook():
         data = request.get_json(force=True)
 
         if "challenge" in data:
+            print(f"Monday CHALLENGE: {data['challenge']}", flush=True)
             return {"challenge": data["challenge"]}, 200
 
-        print(f"Monday event received: {json.dumps(data)[:500]}")
+        # ВСЕГДА логируем всё что прилетает — видим в Railway логах
+        print(f"Monday event received: {json.dumps(data)[:800]}", flush=True)
 
         event        = data.get("event", {})
         item_id      = event.get("pulseId") or event.get("itemId")
@@ -166,14 +168,36 @@ def monday_webhook():
         creator_name = event.get("userName", "")
         user_id      = event.get("userId", "")
 
-        if not item_id or not body:
-            return {"status": "skip - no item or body"}, 200
+        print(f"Parsed: item_id={item_id} creator='{creator_name}' user_id={user_id} body_preview={body[:100]}", flush=True)
+
+        if not item_id:
+            print("SKIP: no item_id", flush=True)
+            return {"status": "skip - no item"}, 200
+
+        if not body:
+            print("SKIP: no body", flush=True)
+            return {"status": "skip - no body"}, 200
 
         if "AI_Assist" in creator_name or "ai_assist" in creator_name.lower():
+            print(f"SKIP: self-mention from {creator_name}", flush=True)
             return {"status": "skip - self"}, 200
 
-        if "@AI_Assist" not in body and "@ai_assist" not in body.lower():
+        # Более либеральная проверка mention — ловим в любом виде:
+        # "@AI_Assist", "@ai_assist", или если есть mention объект в event
+        body_lower = body.lower()
+        has_mention = (
+            "ai_assist" in body_lower or
+            "aiassist" in body_lower or
+            "ai-assist" in body_lower or
+            event.get("mentionedUsers") or
+            event.get("mentioned_users")
+        )
+
+        if not has_mention:
+            print(f"SKIP: no mention in body. Body was: {body[:200]}", flush=True)
             return {"status": "skip - no mention"}, 200
+
+        print(f"PROCESSING item {item_id}", flush=True)
 
         threading.Thread(
             target=process_monday_async,
