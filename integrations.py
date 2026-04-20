@@ -290,6 +290,84 @@ def _get_shared_link(dbx, dropbox_path):
 
 
 # ─────────────────────────────────────────
+# DROPBOX — UPLOAD CLIENT PHOTO
+# ─────────────────────────────────────────
+
+def upload_photo_to_client_folder(photo_bytes, client_name, file_number=None, ext="jpg"):
+    """
+    Сохраняем клиентское фото в папку клиента в Dropbox.
+    Если папки нет — создаём. Имя файла с таймштампом чтоб не затирать.
+    Возвращает file_number (чтобы Monday и Excel его использовали).
+    """
+    try:
+        dbx = get_dbx()
+
+        try:
+            dbx.files_get_metadata(DROPBOX_ROOT)
+        except dropbox.exceptions.ApiError:
+            dbx.files_create_folder_v2(DROPBOX_ROOT)
+
+        all_entries = list_all_dropbox_entries(dbx, DROPBOX_ROOT)
+
+        # Ищем существующую папку — по номеру, потом по имени
+        folder_path = None
+        folder_name = None
+        found_number = None
+
+        if file_number:
+            for entry in all_entries:
+                if not hasattr(entry, "name"):
+                    continue
+                num = _extract_number_from_folder(entry.name)
+                if num == file_number:
+                    folder_path = entry.path_display
+                    folder_name = entry.name
+                    found_number = num
+                    break
+
+        if not folder_path and client_name:
+            needle = _normalize(client_name)
+            for entry in all_entries:
+                if not hasattr(entry, "name"):
+                    continue
+                folder_name_part = _extract_name_from_folder(entry.name)
+                if _normalize(folder_name_part) == needle:
+                    folder_path = entry.path_display
+                    folder_name = entry.name
+                    found_number = _extract_number_from_folder(entry.name)
+                    break
+
+        # Не нашли — создаём новую
+        if not folder_path:
+            if not file_number:
+                file_number = _generate_new_number(all_entries)
+            folder_name = f"{file_number} {client_name or 'unknown'}"
+            folder_path = f"{DROPBOX_ROOT}/{folder_name}"
+            try:
+                dbx.files_create_folder_v2(folder_path)
+                print(f"Создана папка для фото: {folder_name}")
+            except dropbox.exceptions.ApiError as e:
+                if "path/conflict" not in str(e):
+                    raise
+            found_number = file_number
+
+        # Имя фото с таймштампом
+        timestamp = datetime.now().strftime("%m%d-%H%M%S")
+        photo_name = f"photo_{timestamp}.{ext}"
+        photo_path = f"{folder_path}/{photo_name}"
+
+        dbx.files_upload(photo_bytes, photo_path, mode=WriteMode.overwrite)
+        print(f"Фото сохранено: {photo_path}")
+
+        return found_number
+
+    except Exception as e:
+        print(f"upload_photo_to_client_folder error: {e}")
+        traceback.print_exc()
+        return file_number
+
+
+# ─────────────────────────────────────────
 # DROPBOX PHOTOS
 # ─────────────────────────────────────────
 
@@ -457,13 +535,23 @@ def create_monday_cards(client_name, job_type, estimate_total,
             except Exception:
                 file_number = datetime.now().strftime("%y%m%d") + "11"
 
+        # Monday location колонка требует lat/lng + address.
+        # Если нет — просто пропускаем, адрес в N/A.
+        location_val = {}
+        if location:
+            location_val = {
+                "address": location,
+                "lat": "34.1478",   # Pasadena coords по умолчанию
+                "lng": "-118.1445",
+            }
+
         col_main = {
             "text5__1":  file_number,
             "phone__1":  {"phone": phone_clean, "countryShortName": "US"} if phone_clean else {},
             "email__1":  {"email": email_val, "text": email_val} if email_val else {},
             "text6__1":  job_type,
             "link__1":   {"url": dropbox_url, "text": "Estimate XLSX"} if dropbox_url else {},
-            "location__1": {"address": location} if location else {},
+            "location__1": location_val,
         }
 
         query1 = """mutation ($board: ID!, $group: String!, $name: String!, $cols: JSON!) {
@@ -487,7 +575,7 @@ def create_monday_cards(client_name, job_type, estimate_total,
         col_contacts = {
             "phone":       {"phone": phone_clean, "countryShortName": "US"} if phone_clean else {},
             "email":       {"email": email_val, "text": email_val} if email_val else {},
-            "location__1": {"address": location} if location else {},
+            "location__1": location_val,
             "text4":       job_type,
         }
         query2 = """mutation ($board: ID!, $name: String!, $cols: JSON!) {
