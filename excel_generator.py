@@ -5,6 +5,7 @@ from datetime import datetime
 import re
 import os
 
+
 def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str) -> str:
     date_str = datetime.now().strftime("%Y-%m-%d")
     filename = f"estimate_{client_name.replace(' ', '_')}_{date_str}.xlsx"
@@ -15,11 +16,11 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.title = "Estimate"
 
     from openpyxl.worksheet.page import PageMargins
-    ws.page_setup.orientation  = "portrait"
-    ws.page_setup.paperSize    = 1
-    ws.page_setup.fitToPage    = True
-    ws.page_setup.fitToWidth   = 1
-    ws.page_setup.fitToHeight  = 0
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.paperSize   = 1
+    ws.page_setup.fitToPage   = True
+    ws.page_setup.fitToWidth  = 1
+    ws.page_setup.fitToHeight = 0
     ws.page_margins = PageMargins(left=0.25, right=0.25, top=0.5, bottom=0.5)
 
     ws.sheet_view.showGridLines = False
@@ -35,12 +36,14 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     mid_gray    = "AAAAAA"
     dark_gray   = "666666"
     header_gray = "D9D9D9"
+    yellow_edit = "FFF2CC"   # жёлтый — редактируемая ячейка (дисконт)
 
     gray_fill   = PatternFill("solid", fgColor=light_gray)
     white_fill  = PatternFill("solid", fgColor=white)
     header_fill = PatternFill("solid", fgColor=header_gray)
+    yellow_fill = PatternFill("solid", fgColor=yellow_edit)
 
-    # ── Шрифты Arial как у Betty ─────────────
+    # ── Шрифты ───────────────────────────────
     F = "Arial"
     font_num      = Font(name=F, size=10, bold=False, color=black)
     font_title    = Font(name=F, size=16, bold=True,  color=black)
@@ -55,6 +58,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     font_note_hdr = Font(name=F, size=10, bold=False, underline="single", color=black)
     font_note     = Font(name=F, size=9,              color=dark_gray)
     font_footer   = Font(name=F, size=9,              color=dark_gray)
+    font_pct      = Font(name=F, size=10, bold=True,  color=black)
 
     # ── Выравнивание ─────────────────────────
     left_top  = Alignment(horizontal="left",  vertical="top",    wrap_text=True)
@@ -65,17 +69,21 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     # ── Границы ──────────────────────────────
     def btm(color=mid_gray, style="thin"):
         return Border(bottom=Side(style=style, color=color))
+
     def full_border(color=mid_gray):
         s = Side(style="thin", color=color)
         return Border(top=s, bottom=s, left=s, right=s)
+
     def dbl_btm():
         return Border(bottom=Side(style="double", color=black))
+
     def thick_btm():
         return Border(bottom=Side(style="medium", color=black))
 
     # ── Колонки ──────────────────────────────
-    ws.column_dimensions["A"].width = 82
-    ws.column_dimensions["B"].width = 20
+    # Делаем A чуть уже, B шире — чтобы клиент не улетал вправо
+    ws.column_dimensions["A"].width = 70
+    ws.column_dimensions["B"].width = 26
 
     # ── Парсинг ──────────────────────────────
     def get_field(pattern, text):
@@ -95,12 +103,13 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     location_val = get_field(r"LOCATION:\s*(.+)", estimate_text)
     timeline_val = get_field(r"TIMELINE:\s*(.+)", estimate_text)
 
+    # ── Парсим breakdown — разделяем labor / materials ──
     breakdown_match = re.search(
         r"BREAKDOWN:(.*?)(?:SUBTOTAL|TOTAL ESTIMATE|$)",
         estimate_text, re.DOTALL | re.IGNORECASE
     )
     labor_items    = []
-    material_total = 0.0
+    material_items = []
     if breakdown_match:
         for desc, cost in re.findall(r"-\s*(.+?):\s*\$?([\d,]+)", breakdown_match.group(1)):
             desc     = desc.strip().lstrip("*").strip()
@@ -108,7 +117,10 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
             if "labor" in desc.lower() or "labour" in desc.lower():
                 labor_items.append((clean_desc(desc), cost_val))
             else:
-                material_total += cost_val
+                # Убираем слово "materials" из описания для чистоты
+                clean = re.sub(r"(?i)\s*\(materials\)\s*", "", desc)
+                clean = re.sub(r"(?i)\s*materials\s*$", "", clean)
+                material_items.append((clean.strip(), cost_val))
 
     notes_match = re.search(r"NOTES:(.*?)$", estimate_text, re.DOTALL | re.IGNORECASE)
     notes_lines = []
@@ -201,7 +213,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.row_dimensions[row].height = 12
     row += 1
 
-    # ── ЗАГОЛОВОК ТАБЛИЦЫ ────────────────────
+    # ── ЗАГОЛОВОК ТАБЛИЦЫ LABOR ──────────────
     ws.row_dimensions[row].height = 22
     ws[f"A{row}"]           = "Description"
     ws[f"A{row}"].font      = font_hdr
@@ -218,7 +230,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     # ── LABOR СТРОКИ ─────────────────────────
     labor_start = row
     for i, (desc, cost_val) in enumerate(labor_items):
-        lines_needed = max(1, len(desc) // 80 + 1)
+        lines_needed = max(1, len(desc) // 70 + 1)
         ws.row_dimensions[row].height = max(18, lines_needed * 14)
         fill = gray_fill if i % 2 == 0 else white_fill
 
@@ -237,22 +249,56 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
 
     labor_end = row - 1
 
-    # ── MATERIALS NOTE ───────────────────────
-    ws.row_dimensions[row].height = 15
-    ws[f"A{row}"]           = "- Materials and additional work paid separately. All receipts provided."
-    ws[f"A{row}"].font      = font_small
-    ws[f"A{row}"].alignment = left_mid
-    ws[f"A{row}"].border    = btm()
-    ws[f"B{row}"].border    = btm()
+    ws.row_dimensions[row].height = 6
     row += 1
+
+    # ── ЗАГОЛОВОК MATERIALS ──────────────────
+    if material_items:
+        ws.row_dimensions[row].height = 22
+        ws[f"A{row}"]           = "Materials"
+        ws[f"A{row}"].font      = font_hdr
+        ws[f"A{row}"].fill      = header_fill
+        ws[f"A{row}"].alignment = left_mid
+        ws[f"A{row}"].border    = full_border()
+        ws[f"B{row}"]           = "Cost"
+        ws[f"B{row}"].font      = font_hdr
+        ws[f"B{row}"].fill      = header_fill
+        ws[f"B{row}"].alignment = right_mid
+        ws[f"B{row}"].border    = full_border()
+        row += 1
+
+        # ── MATERIALS СТРОКИ ─────────────────
+        mat_start = row
+        for i, (desc, cost_val) in enumerate(material_items):
+            lines_needed = max(1, len(desc) // 70 + 1)
+            ws.row_dimensions[row].height = max(18, lines_needed * 14)
+            fill = gray_fill if i % 2 == 0 else white_fill
+
+            ws[f"A{row}"]               = f"- {desc}"
+            ws[f"A{row}"].font          = font_row
+            ws[f"A{row}"].fill          = fill
+            ws[f"A{row}"].alignment     = left_top
+            ws[f"A{row}"].border        = btm()
+            ws[f"B{row}"]               = cost_val
+            ws[f"B{row}"].font          = font_row
+            ws[f"B{row}"].fill          = fill
+            ws[f"B{row}"].alignment     = right_mid
+            ws[f"B{row}"].number_format = "$#,##0.00"
+            ws[f"B{row}"].border        = btm()
+            row += 1
+        mat_end = row - 1
+    else:
+        # Если materials отсутствуют — пустой диапазон для формулы
+        mat_start = row
+        mat_end   = row - 1  # пустой диапазон, SUM вернёт 0
 
     ws.row_dimensions[row].height = 6
     row += 1
 
-    # ── SUBTOTAL ─────────────────────────────
+    # ── SUBTOTAL LABOR ───────────────────────
     subtotal_row = row
     ws.row_dimensions[row].height = 20
-    ws[f"A{row}"]               = "Subtotal"
+    ws[f"A{row}"]               = "Subtotal Labor"
     ws[f"A{row}"].font          = font_sub
     ws[f"A{row}"].alignment     = left_mid
     ws[f"A{row}"].border        = thick_btm()
@@ -263,27 +309,55 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"B{row}"].border        = thick_btm()
     row += 1
 
-    # ── ESTIMATED MATERIALS SUBTOTAL ─────────
+    # ── SUBTOTAL MATERIALS (формула!) ───────
     mat_row = row
     ws.row_dimensions[row].height = 20
-    ws[f"A{row}"]               = "Estimated Materials Subtotal"
+    ws[f"A{row}"]               = "Subtotal Materials"
     ws[f"A{row}"].font          = font_sub
     ws[f"A{row}"].alignment     = left_mid
     ws[f"A{row}"].border        = thick_btm()
-    ws[f"B{row}"]               = material_total if material_total > 0 else 0
+    if material_items:
+        ws[f"B{row}"] = f"=SUM(B{mat_start}:B{mat_end})"
+    else:
+        ws[f"B{row}"] = 0
     ws[f"B{row}"].font          = font_sub
     ws[f"B{row}"].alignment     = right_mid
     ws[f"B{row}"].number_format = "$#,##0.00"
     ws[f"B{row}"].border        = thick_btm()
     row += 1
 
-    # ── DISCOUNT %10 ─────────────────────────
+    # ── DISCOUNT — редактируемый процент ────
+    # Ячейка A с процентом отдельно, в B формула.
+    # Adam меняет процент в A — пересчёт автоматически.
     discount_row = row
     ws.row_dimensions[row].height = 20
-    ws[f"A{row}"]               = "Discount %10"
+
+    # В колонке A — "Discount" + жёлтая ячейка с процентом сразу после
+    # Делаем через единый текст с процентом, но процент в именованной ячейке
+    # Для простоты ставим всё в A и процент в отдельную ячейку справа через формулу
+    ws[f"A{row}"]               = "Discount (edit % →)"
     ws[f"A{row}"].font          = font_sub
     ws[f"A{row}"].alignment     = left_mid
-    ws[f"B{row}"]               = f"=-0.10*(B{subtotal_row}+B{mat_row})"
+
+    # Процент вписываем в A но сразу после слова — не получится. Используем helper:
+    # Вместо этого — храним процент в специальной ячейке в конце документа,
+    # на неё ссылаемся через formula. Но проще: процент в ячейке A, а текст перед ним.
+    # Решение: процент в скрытой ячейке C{discount_row}, в B — формула
+    ws[f"C{discount_row}"] = 0.10  # 10% по умолчанию — редактируемое значение
+    ws[f"C{discount_row}"].number_format = "0%"
+    ws[f"C{discount_row}"].font          = font_pct
+    ws[f"C{discount_row}"].fill          = yellow_fill
+    ws[f"C{discount_row}"].alignment     = center_mid
+
+    # Разкрываем колонку C чтобы Adam видел процент
+    ws.column_dimensions["C"].hidden = False
+    ws.column_dimensions["C"].width  = 10
+
+    # Формула в A: "Discount [10%]:"
+    ws[f"A{row}"] = f'=CONCATENATE("Discount (",TEXT(C{discount_row},"0%")," — edit yellow cell →)")'
+
+    # Сумма discount в B
+    ws[f"B{row}"]               = f"=-C{discount_row}*(B{subtotal_row}+B{mat_row})"
     ws[f"B{row}"].font          = font_sub
     ws[f"B{row}"].alignment     = right_mid
     ws[f"B{row}"].number_format = "$#,##0.00"
@@ -342,7 +416,8 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"A{row}"].font      = font_footer
     ws[f"A{row}"].alignment = center_mid
 
-    ws.print_area = f"A1:B{row}"
+    # ── Print area — включаем C чтобы процент дисконта печатался ──
+    ws.print_area = f"A1:C{row}"
 
     wb.save(filepath)
     return filepath
