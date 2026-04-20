@@ -9,6 +9,7 @@ from integrations import (
     send_estimate_email,
     create_monday_cards,
     find_client_in_monday,
+    find_client_by_phone,
     get_dropbox_photos,
     update_monday_item_link
 )
@@ -19,51 +20,96 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
 init_database()
 
-SYSTEM_PROMPT_BASE = """You are AI Assistant for Handy Eddy handyman business (USA).
+SYSTEM_PROMPT_BASE = """You are AI Estimator Agent for Handy Eddy handyman business (Los Angeles / Pasadena, CA area).
 
-YOUR PRIMARY JOB: Create professional estimates for handyman work.
-SECONDARY: Help with any work-related tasks — send emails, search prices, answer questions about jobs.
+OWNER: Adam (Handy Eddy) — you work FOR him, not for the client.
+COMPANY: Qirim LLC | 1105 E Orange Grove Blvd, Pasadena, CA 91104 | adam@handyeddy.com | 323 763 8686
 
-=== ESTIMATE MODE ===
-When you have enough info — generate estimate immediately in EXACT format:
+═══════════════════════════════════════
+YOUR JOB — IN ORDER OF PRIORITY:
+═══════════════════════════════════════
+
+1. CREATE ESTIMATES — your primary function
+2. SEND EMAILS — when Adam approves
+3. ANSWER QUESTIONS — about jobs, materials, timelines
+4. SEARCH PRICES — when asked
+
+═══════════════════════════════════════
+ESTIMATE FORMAT — ALWAYS EXACT:
+═══════════════════════════════════════
+
 CLIENT: [full name]
 PHONE: [phone or N/A]
 EMAIL: [email or N/A]
-JOB: [job type]
-LOCATION: [city, state or N/A]
+JOB: [job description]
+LOCATION: [street address or city, state — NEVER put address in NOTES]
 BREAKDOWN:
-- [item materials]: $[price]
-- [item labor]: $[price]
+- [task description] (labor): $[amount]
+- [materials description] (materials): $[amount]
 SUBTOTAL MATERIALS: $[amount]
 SUBTOTAL LABOR: $[amount]
 TOTAL ESTIMATE: $[amount]
-TIMELINE: [days]
-NOTES: [notes]
+TIMELINE: [e.g. 1-2 days]
+NOTES: [scope clarifications, assumptions, optional add-ons — NOT the address]
 
-IMPORTANT: If phone, email or location are missing — use N/A. Do NOT ask for them unless absolutely necessary. Generate the estimate with what you have.
+RULES:
+- Use N/A for missing phone/email/location — never ask for them, generate estimate anyway
+- LOCATION = physical job address (street or city/state). NOTES = work scope details only
+- LA/Pasadena labor rates: handyman $75-150/hr, painter $85-100/hr, plumber $100-200/hr
+- Always price for LA market — not national average
+- If photos provided — analyze them, describe what you see, price accordingly
+- If no photos — price based on description
 
-=== EDIT MODE ===
-When asked to modify estimate (remove item, recalculate, change price):
-- Update the breakdown
-- Recalculate all totals
-- Output full estimate again in EXACT format above
+═══════════════════════════════════════
+MONDAY WORKFLOW:
+═══════════════════════════════════════
 
-=== EMAIL MODE ===
-When asked to send email — respond: "Sending estimate to [name]..."
-System handles the actual sending automatically.
+When someone tags @AI_Assist in Monday:
+- Read the card columns: client name, phone, email, location, job description
+- Check if photos exist in Dropbox folder for this client
+- Generate estimate immediately — do not ask for more info unless critical
+- After estimate is generated: Excel created → uploaded to Dropbox → link updated in Monday card
 
-=== WEB SEARCH MODE ===
-When asked to find prices or product info — use web_search tool.
-Return concise result: product name, price, source.
+When Adam writes "estimate approve send to client":
+- Send the estimate via DocuSign to client email
+- Confirm in Monday comment when sent
 
-=== GENERAL ===
-- Be concise. No fluff.
-- If asked anything work-related (materials, timelines, techniques) — answer directly.
-- English only unless client writes in another language.
-- Never say you cannot access Dropbox, Monday or email — system handles all automatically.
+═══════════════════════════════════════
+PRICING GUIDELINES — LA/PASADENA:
+═══════════════════════════════════════
 
-IMPORTANT: Keep all responses under 3500 tokens.
-Never cut off mid-sentence. Always complete your response fully."""
+Doors: pre-hung interior $250-400 labor each | exterior $350-600 labor each
+Painting interior: $85-95/hr labor | room $300-800 | whole house $4,000-10,000
+Painting exterior: $2,000-8,000 depending on size
+Plumbing: $100-200/hr | faucet $150-350 | toilet $200-450 | sink $200-500
+Drywall repair: small hole $150-300 | water damage $400-1,200 | full room $1,200-3,500
+Flooring: hardwood $8-15/sqft | vinyl plank $3-7/sqft | laminate $4-9/sqft
+Tile: $10-30/sqft installed
+Stucco repair: small $200-400 | large patch $500-1,500
+Popcorn ceiling removal: $300-600 per room
+Garage door: single $800-1,500 | double $1,500-3,500 installed
+Handyman general: $75-150/hr | half day $300-550 | full day $500-900
+Carpentry/trim: $85-175/hr
+Electrical: $100-175/hr
+Fence: wood $20-50/linear ft | block wall $50-100/linear ft
+Pressure washing: house $300-800 | driveway $150-350
+Window install: $400-1,000 per window
+Cabinet install: $300-500 per cabinet
+
+═══════════════════════════════════════
+COMMUNICATION STYLE:
+═══════════════════════════════════════
+
+- Professional, concise, no fluff
+- English only (unless client writes in another language)
+- Never say you cannot access Dropbox, Monday, or email — system handles everything
+- Never ask for info that is already in the Monday card columns
+- Maximum response 3,500 tokens — never cut off mid-sentence
+
+═══════════════════════════════════════
+SYSTEM HANDLES AUTOMATICALLY:
+═══════════════════════════════════════
+Excel generation, Dropbox upload, Monday card update (link column), Email sending via SendGrid, Photo retrieval from Dropbox."""
 
 
 # ─────────────────────────────────────────
@@ -114,29 +160,46 @@ def is_estimate_request(message):
 # PIPELINE — Telegram
 # ─────────────────────────────────────────
 
-async def run_pipeline(assistant_message, existing_client_folder=None):
+async def run_pipeline(assistant_message, file_number="", known_phone=""):
+    """
+    Создаём Excel → загружаем в Dropbox → создаём карточки в Monday.
+    file_number — если есть (из Monday карточки), используется для синхронизации.
+    known_phone — если есть, ищем существующего клиента по телефону для реюза номера.
+    """
     from excel_generator import generate_estimate_excel as generate_pdf
     data        = extract_estimate_data(assistant_message)
     client_name = data.get("client_name", "Client")
     job_type    = data.get("job_type", "Job")
     total       = data.get("total", "0")
-    phone       = data.get("phone", "")
+    phone       = data.get("phone", "") or known_phone
     email       = data.get("email", "")
     location    = data.get("location", "")
+
     try:
-        pdf_path      = generate_pdf(assistant_message, client_name, job_type)
-        folder_to_use = existing_client_folder or client_name
-        dropbox_url   = upload_to_dropbox(
+        # Если телефон есть — проверим существующего клиента по нему
+        if phone and not file_number:
+            existing = find_client_by_phone(phone)
+            if existing and existing.get("file_number"):
+                file_number = existing["file_number"]
+                print(f"Повторный клиент по телефону: reusing number {file_number}")
+
+        pdf_path = generate_pdf(assistant_message, client_name, job_type)
+
+        dropbox_url, used_number = upload_to_dropbox(
             pdf_path, client_name, job_type,
-            existing_folder=folder_to_use
+            file_number=file_number or None
         )
+
         monday_result = create_monday_cards(
             client_name, job_type, total,
-            dropbox_url, email, phone, location
+            dropbox_url, email, phone, location,
+            file_number=used_number
         )
+
         return (
             f"\n\n✅ Excel создан\n"
             f"📁 Dropbox: {dropbox_url}\n"
+            f"🔢 #: {used_number}\n"
             f"📋 Monday: {monday_result}"
         )
     except Exception as e:
@@ -147,15 +210,19 @@ async def run_pipeline(assistant_message, existing_client_folder=None):
 # PIPELINE — Monday
 # ─────────────────────────────────────────
 
-async def run_pipeline_monday(assistant_message, client_name, item_id=None):
+async def run_pipeline_monday(assistant_message, client_name, item_id=None, file_number=""):
+    """
+    Pipeline для Monday webhook. Использует file_number из карточки
+    чтобы положить Excel в существующую папку Dropbox (ту же что и карточка).
+    """
     from excel_generator import generate_estimate_excel as generate_pdf
     data     = extract_estimate_data(assistant_message)
     job_type = data.get("job_type", "Job")
     try:
-        pdf_path    = generate_pdf(assistant_message, client_name, job_type)
-        dropbox_url = upload_to_dropbox(
+        pdf_path = generate_pdf(assistant_message, client_name, job_type)
+        dropbox_url, used_number = upload_to_dropbox(
             pdf_path, client_name, job_type,
-            existing_folder=client_name
+            file_number=file_number or None
         )
         if item_id:
             update_monday_item_link(item_id, dropbox_url)
@@ -199,7 +266,7 @@ async def handle_email_command(message, context_dropbox_url="", context_job_type
                 break
 
         if not client_name:
-            return "❌ Не понял имя клиента. Напиши: 'Send email to Maria Gonzalez 260414'"
+            return "❌ Не понял имя клиента. Напиши: 'Send email to Maria Gonzalez'"
 
         result = find_client_in_monday(client_name)
 
@@ -211,8 +278,9 @@ async def handle_email_command(message, context_dropbox_url="", context_job_type
             for c in result:
                 location = c.get("location") or "локация не указана"
                 job      = c.get("job_type") or "работа не указана"
-                lines.append(f"• {c['name']} — {location} | {job}")
-            lines.append("\nНапиши полное имя с номером: Send email to Maria Gonzalez 260414")
+                number   = c.get("file_number") or "?"
+                lines.append(f"• {c['name']} [#{number}] — {location} | {job}")
+            lines.append("\nНапиши полное имя с номером: Send email to Maria Gonzalez 26041126")
             return "\n".join(lines)
 
         client_email = result.get("email", "")
@@ -246,7 +314,8 @@ async def handle_email_command(message, context_dropbox_url="", context_job_type
 
 async def process_monday_request(item_id, client_name, job_type,
                                   location, phone, email,
-                                  dropbox_url, message):
+                                  dropbox_url, message,
+                                  file_number="", notes=""):
     try:
         user_key = f"monday_{item_id}"
         if user_key not in conversations:
@@ -265,17 +334,24 @@ async def process_monday_request(item_id, client_name, job_type,
         need_estimate   = is_estimate_request(message)
         message_content = []
 
+        context_header = (
+            f"Client: {client_name}. "
+            f"Phone: {phone or 'N/A'}. "
+            f"Email: {email or 'N/A'}. "
+            f"Job: {job_type}. "
+            f"Location: {location or 'N/A'}. "
+            f"Notes: {notes or 'N/A'}. "
+            f"File #: {file_number or 'N/A'}.\n"
+        )
+
         if need_estimate:
-            photos = get_dropbox_photos(client_name)
+            # Ищем фото — по номеру если есть, иначе по имени
+            photos = get_dropbox_photos(client_name, file_number=file_number or None)
             if photos:
                 message_content.append({
                     "type": "text",
                     "text": (
-                        f"Client: {client_name}. "
-                        f"Phone: {phone or 'N/A'}. "
-                        f"Email: {email or 'N/A'}. "
-                        f"Job: {job_type}. "
-                        f"Location: {location or 'N/A'}.\n"
+                        context_header +
                         f"Request: {message}\n"
                         f"Analyze these {len(photos)} photos and create estimate. "
                         f"Use phone/email/location from above — do NOT ask for them again."
@@ -295,11 +371,7 @@ async def process_monday_request(item_id, client_name, job_type,
                 message_content.append({
                     "type": "text",
                     "text": (
-                        f"Client: {client_name}. "
-                        f"Phone: {phone or 'N/A'}. "
-                        f"Email: {email or 'N/A'}. "
-                        f"Job: {job_type}. "
-                        f"Location: {location or 'N/A'}.\n"
+                        context_header +
                         f"Request: {message}\n"
                         f"No photos found in Dropbox. "
                         f"Create estimate based on job description. "
@@ -309,14 +381,7 @@ async def process_monday_request(item_id, client_name, job_type,
         else:
             message_content.append({
                 "type": "text",
-                "text": (
-                    f"Client: {client_name}. "
-                    f"Phone: {phone or 'N/A'}. "
-                    f"Email: {email or 'N/A'}. "
-                    f"Job: {job_type}. "
-                    f"Location: {location or 'N/A'}. "
-                    f"Question: {message}"
-                )
+                "text": context_header + f"Question: {message}"
             })
 
         conversations[user_key].append({"role": "user", "content": message_content})
@@ -349,13 +414,16 @@ async def process_monday_request(item_id, client_name, job_type,
             pipeline_result = await run_pipeline_monday(
                 assistant_message,
                 client_name=client_name,
-                item_id=item_id
+                item_id=item_id,
+                file_number=file_number
             )
             assistant_message += pipeline_result
 
         return assistant_message
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return f"❌ Ошибка: {str(e)}"
 
 
@@ -407,6 +475,8 @@ async def process_request(user_id, user_message):
         return assistant_message
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return f"❌ Ошибка: {str(e)}"
 
 
@@ -439,38 +509,36 @@ async def process_photo(user_id, image_data, caption=""):
         conversations[user_id].append({"role": "assistant", "content": assistant_message})
 
         if "TOTAL ESTIMATE:" in assistant_message:
-            data        = extract_estimate_data(assistant_message)
-            client_name = data.get("client_name", "Client")
-            pipeline_result = await run_pipeline(
-                assistant_message,
-                existing_client_folder=client_name
-            )
+            pipeline_result = await run_pipeline(assistant_message)
             assistant_message += pipeline_result
 
         return assistant_message
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return f"❌ Ошибка: {str(e)}"
 
 
-async def process_dropbox_photos(user_id, client_name, caption=""):
+async def process_dropbox_photos(user_id, client_name, caption="", file_number=""):
     try:
-        photos = get_dropbox_photos(client_name)
+        # Ищем фото — по номеру если есть, иначе по имени
+        photos = get_dropbox_photos(client_name, file_number=file_number or None)
         if not photos:
-            return f"❌ Фото не найдены в Dropbox для клиента: {client_name}"
+            return f"❌ Фото не найдены в Dropbox для: {client_name} {file_number}"
 
         if user_id not in conversations:
             conversations[user_id] = []
 
         if caption:
             instruction = (
-                f"Analyze photos for {client_name}. "
+                f"Analyze photos for {client_name} (file #{file_number or 'N/A'}). "
                 f"Scope specified: {caption}. "
                 f"Create estimate for ONLY what was specified."
             )
         else:
             instruction = (
-                f"Analyze photos for {client_name}. "
+                f"Analyze photos for {client_name} (file #{file_number or 'N/A'}). "
                 f"Describe what work you see needed. "
                 f"Ask: 'Is this the correct scope or do you want to adjust?' "
                 f"Do NOT generate TOTAL ESTIMATE yet — wait for confirmation."
@@ -500,13 +568,15 @@ async def process_dropbox_photos(user_id, client_name, caption=""):
         if "TOTAL ESTIMATE:" in assistant_message and caption:
             pipeline_result = await run_pipeline(
                 assistant_message,
-                existing_client_folder=client_name
+                file_number=file_number
             )
             assistant_message += pipeline_result
 
         return assistant_message
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return f"❌ Ошибка: {str(e)}"
 
 
