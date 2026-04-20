@@ -148,6 +148,22 @@ Before finalizing:
 
 **Remember:** RAG prices are REFERENCE ranges, not answers. Your job is to APPLY expert judgment to the specific case in front of you, using photos/description to narrow down where in the range this particular job lands.
 
+**Step 7 — Consistency rule (CRITICAL)**
+If the same photos/description are presented to you twice, your estimate MUST be within 10% of itself. To achieve this:
+- Always start from measurement: count sq ft, count linear ft, count items
+- Always use the SAME labor rate ($95/hr for 2-man crew standard)
+- Never round to "nice" numbers — calculate from hours × rate precisely
+- Never change your mind about scope between runs — if you see lead paint risk once, you ALWAYS see it
+- If you previously estimated this job and you're being asked again — your new total should be IDENTICAL unless the scope explicitly changed
+
+**Step 8 — Measurement discipline**
+Before writing any dollar amount, ALWAYS state the measurement:
+- "Exterior walls: ~1,400 sq ft (160 linear ft × 9 ft avg)"
+- "Interior trim: ~180 linear ft"
+- "Cabinet doors: 22 doors"
+- "Tile area: 85 sq ft"
+This measurement is the foundation. Dollar amounts flow from it. Same measurement = same dollars.
+
 ═══════════════════════════════════════
 COMMUNICATION STYLE:
 ═══════════════════════════════════════
@@ -379,10 +395,16 @@ async def process_monday_request(item_id, client_name, job_type,
                                   file_number="", notes=""):
     try:
         user_key = f"monday_{item_id}"
-        if user_key not in conversations:
-            conversations[user_key] = []
 
         intent = detect_intent(message)
+        need_estimate = is_estimate_request(message)
+
+        # Для эстимейтов всегда начинаем с чистого листа — это критично для
+        # стабильности цифр. Иначе предыдущий эстимейт в памяти влияет на новый.
+        if need_estimate:
+            conversations[user_key] = []
+        elif user_key not in conversations:
+            conversations[user_key] = []
 
         if intent == "email":
             return await handle_email_command(
@@ -392,7 +414,6 @@ async def process_monday_request(item_id, client_name, job_type,
                 context_client_name=client_name
             )
 
-        need_estimate   = is_estimate_request(message)
         message_content = []
 
         context_header = (
@@ -451,10 +472,11 @@ async def process_monday_request(item_id, client_name, job_type,
         system_prompt = SYSTEM_PROMPT_BASE + f"\n\nMarket prices from RAG: {prices}"
 
         kwargs = {
-            "model":      "claude-opus-4-6",
-            "max_tokens": 4000,
-            "system":     system_prompt,
-            "messages":   conversations[user_key]
+            "model":       "claude-opus-4-6",
+            "max_tokens":  4000,
+            "temperature": 0,
+            "system":      system_prompt,
+            "messages":    conversations[user_key]
         }
         if intent == "search":
             kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
@@ -508,10 +530,11 @@ async def process_request(user_id, user_message):
         system_prompt = SYSTEM_PROMPT_BASE + f"\n\nMarket prices from RAG: {prices}"
 
         kwargs = {
-            "model":      "claude-opus-4-6",
-            "max_tokens": 4000,
-            "system":     system_prompt,
-            "messages":   conversations[user_id]
+            "model":       "claude-opus-4-6",
+            "max_tokens":  4000,
+            "temperature": 0,
+            "system":      system_prompt,
+            "messages":    conversations[user_id]
         }
 
         if intent == "search":
@@ -563,6 +586,7 @@ async def process_photo(user_id, image_data, caption=""):
         response = client.messages.create(
             model="claude-opus-4-6",
             max_tokens=4000,
+            temperature=0,
             system=system_prompt,
             messages=conversations[user_id]
         )
@@ -646,6 +670,7 @@ async def process_dropbox_photos(user_id, client_name, caption="", file_number="
         response = client.messages.create(
             model="claude-opus-4-6",
             max_tokens=4000,
+            temperature=0,
             system=system_prompt,
             messages=conversations[user_id]
         )
