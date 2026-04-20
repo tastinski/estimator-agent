@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from rag import search_prices, init_database
 from integrations import (
     upload_to_dropbox,
+    upload_photo_to_client_folder,
     send_estimate_email,
     create_monday_cards,
     find_client_in_monday,
@@ -508,8 +509,34 @@ async def process_photo(user_id, image_data, caption=""):
         assistant_message = response.content[0].text
         conversations[user_id].append({"role": "assistant", "content": assistant_message})
 
+        # Сохраняем само фото в папку клиента (если сумели вытащить имя)
+        saved_number = ""
+        try:
+            data = extract_estimate_data(assistant_message)
+            client_name_guess = data.get("client_name") or caption or ""
+            phone_guess = data.get("phone", "")
+
+            # Если есть телефон — пробуем найти существующего клиента для реюза номера
+            existing_number = ""
+            if phone_guess and phone_guess.lower() not in ["n/a", "na", ""]:
+                existing = find_client_by_phone(phone_guess)
+                if existing and existing.get("file_number"):
+                    existing_number = existing["file_number"]
+
+            if client_name_guess:
+                saved_number = upload_photo_to_client_folder(
+                    image_data, client_name_guess,
+                    file_number=existing_number or None
+                ) or ""
+                print(f"Photo saved to Dropbox under number {saved_number}")
+        except Exception as e:
+            print(f"Photo save skipped: {e}")
+
         if "TOTAL ESTIMATE:" in assistant_message:
-            pipeline_result = await run_pipeline(assistant_message)
+            pipeline_result = await run_pipeline(
+                assistant_message,
+                file_number=saved_number
+            )
             assistant_message += pipeline_result
 
         return assistant_message
