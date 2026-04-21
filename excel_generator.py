@@ -266,8 +266,9 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         row += 1
     labor_end = row - 1
 
-    # ── MATERIALS ────────────────────────────
-    if material_items:
+    # ── MATERIALS — одной строкой, не расписываем по позициям ─
+    materials_total = sum(cost for _, cost in material_items)
+    if materials_total > 0:
         ws.row_dimensions[row].height = 10
         row += 1
 
@@ -284,26 +285,21 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         ws[f"B{row}"].border    = full_border()
         row += 1
 
+        # Одна строка - Estimated Cost of Materials
+        ws[f"A{row}"]               = "- Estimated Cost of Materials"
+        ws[f"A{row}"].font          = font_item
+        ws[f"A{row}"].fill          = gray_fill
+        ws[f"A{row}"].alignment     = left_wrap
+        ws[f"A{row}"].border        = btm()
+        ws[f"B{row}"]               = materials_total
+        ws[f"B{row}"].font          = font_cost
+        ws[f"B{row}"].fill          = gray_fill
+        ws[f"B{row}"].alignment     = right_top
+        ws[f"B{row}"].number_format = "$#,##0.00"
+        ws[f"B{row}"].border        = btm()
         mat_start = row
-        for i, (raw, cost_val) in enumerate(material_items):
-            title, desc = split_title_desc(raw)
-            cell_text = f"- {title}\n{desc}" if desc else f"- {title}"
-            fill = gray_fill if i % 2 == 0 else white_fill
-
-            # НЕ задаём жёсткую высоту — auto
-            ws[f"A{row}"]               = cell_text
-            ws[f"A{row}"].font          = font_item
-            ws[f"A{row}"].fill          = fill
-            ws[f"A{row}"].alignment     = left_wrap
-            ws[f"A{row}"].border        = btm()
-            ws[f"B{row}"]               = cost_val
-            ws[f"B{row}"].font          = font_cost
-            ws[f"B{row}"].fill          = fill
-            ws[f"B{row}"].alignment     = right_top
-            ws[f"B{row}"].number_format = "$#,##0.00"
-            ws[f"B{row}"].border        = btm()
-            row += 1
-        mat_end = row - 1
+        mat_end   = row
+        row += 1
     else:
         mat_start = None
         mat_end = None
@@ -311,17 +307,31 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.row_dimensions[row].height = 12
     row += 1
 
-    # ── SUBTOTAL ─────────────────────────────
-    subtotal_row = row
+    # ── SUBTOTAL LABOR ───────────────────────
+    subtotal_labor_row = row
     ws.row_dimensions[row].height = 22
-    ws[f"A{row}"]               = "Subtotal"
+    ws[f"A{row}"]               = "Subtotal Labor"
     ws[f"A{row}"].font          = font_sub
     ws[f"A{row}"].alignment     = right_mid
     ws[f"A{row}"].border        = btm(black, "thin")
-    if material_items:
-        ws[f"B{row}"] = f"=SUM(B{labor_start}:B{labor_end})+SUM(B{mat_start}:B{mat_end})"
+    ws[f"B{row}"] = f"=SUM(B{labor_start}:B{labor_end})"
+    ws[f"B{row}"].font          = font_sub
+    ws[f"B{row}"].alignment     = right_mid
+    ws[f"B{row}"].number_format = "$#,##0.00"
+    ws[f"B{row}"].border        = btm(black, "thin")
+    row += 1
+
+    # ── SUBTOTAL MATERIALS ───────────────────
+    subtotal_mat_row = row
+    ws.row_dimensions[row].height = 22
+    ws[f"A{row}"]               = "Estimated Cost of Materials"
+    ws[f"A{row}"].font          = font_sub
+    ws[f"A{row}"].alignment     = right_mid
+    ws[f"A{row}"].border        = btm(black, "thin")
+    if mat_start:
+        ws[f"B{row}"] = f"=SUM(B{mat_start}:B{mat_end})"
     else:
-        ws[f"B{row}"] = f"=SUM(B{labor_start}:B{labor_end})"
+        ws[f"B{row}"] = 0
     ws[f"B{row}"].font          = font_sub
     ws[f"B{row}"].alignment     = right_mid
     ws[f"B{row}"].number_format = "$#,##0.00"
@@ -334,7 +344,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"A{row}"].font          = font_total
     ws[f"A{row}"].alignment     = right_mid
     ws[f"A{row}"].border        = dbl_btm()
-    ws[f"B{row}"]               = f"=B{subtotal_row}"
+    ws[f"B{row}"]               = f"=B{subtotal_labor_row}+B{subtotal_mat_row}"
     ws[f"B{row}"].font          = font_total
     ws[f"B{row}"].alignment     = right_mid
     ws[f"B{row}"].number_format = "$#,##0.00"
