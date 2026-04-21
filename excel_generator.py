@@ -354,6 +354,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     # ── TIMELINE ─────────────────────────────
     if timeline_val:
         ws.row_dimensions[row].height = 18
+        ws.merge_cells(f"A{row}:B{row}")
         ws[f"A{row}"]           = f"Estimated Timeline: {timeline_val}"
         ws[f"A{row}"].font      = font_note
         ws[f"A{row}"].alignment = left_mid
@@ -363,12 +364,14 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     # ── NOTES ────────────────────────────────
     if notes_lines:
         ws.row_dimensions[row].height = 20
+        ws.merge_cells(f"A{row}:B{row}")
         ws[f"A{row}"]           = "Notes:"
         ws[f"A{row}"].font      = font_note_hdr
         ws[f"A{row}"].alignment = left_mid
         row += 1
         for note in notes_lines:
-            # НЕ задаём жёсткую высоту — auto по wrap_text
+            # Объединяем A и B — текст заметки на всю ширину листа
+            ws.merge_cells(f"A{row}:B{row}")
             ws[f"A{row}"]           = f"- {note}"
             ws[f"A{row}"].font      = font_note
             ws[f"A{row}"].alignment = Alignment(horizontal="left", vertical="top",
