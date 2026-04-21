@@ -20,9 +20,10 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.page_setup.orientation = "portrait"
     ws.page_setup.paperSize   = 1
     ws.page_setup.fitToPage   = False
-    ws.page_setup.scale       = 100       # прямой масштаб, без сжатия
+    ws.page_setup.scale       = 100
     ws.page_margins = PageMargins(left=0.25, right=0.25, top=0.4, bottom=0.4)
-    ws.print_options.horizontalCentered = True
+    # НЕ центрируем — документ идёт от левого края до правого края страницы
+    ws.print_options.horizontalCentered = False
 
     ws.sheet_view.showGridLines = False
     ws.print_options.gridLines  = False
@@ -73,11 +74,11 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     def dbl_btm():
         return Border(bottom=Side(style="double", color=black))
 
-    # ── Колонки — подогнаны под Letter (8.5x11 с полями 0.4) ──
-    # Полезная ширина ~82 units. A=50 (описание), B=32 (клиент ближе к центру)
-    # Итого = 82, покрывает страницу без дыры справа
-    ws.column_dimensions["A"].width = 50
-    ws.column_dimensions["B"].width = 32
+    # ── Колонки — подогнаны под Letter (8.5x11 с полями 0.25) ──
+    # Полезная ширина ~100 units. A=65 (описание широкое), B=35 (суммы/клиент)
+    # Итого = 100, покрывает страницу целиком
+    ws.column_dimensions["A"].width = 65
+    ws.column_dimensions["B"].width = 35
 
     # ── Парсинг полей ─────────────────────────
     def get_field(pattern, text):
