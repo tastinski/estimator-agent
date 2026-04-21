@@ -15,15 +15,14 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws = wb.active
     ws.title = "Estimate"
 
-    # ── Page setup — Letter, fitToWidth=1 ──
+    # ── Page setup — Letter, минимальные поля, документ растянут на всю страницу ──
     from openpyxl.worksheet.page import PageMargins
     ws.page_setup.orientation = "portrait"
     ws.page_setup.paperSize   = 1
-    ws.page_setup.fitToPage   = True
-    ws.page_setup.fitToWidth  = 1
-    ws.page_setup.fitToHeight = 0
-    ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.page_margins = PageMargins(left=0.5, right=0.5, top=0.5, bottom=0.5)
+    ws.page_setup.fitToPage   = False
+    ws.page_setup.scale       = 100       # прямой масштаб, без сжатия
+    ws.page_margins = PageMargins(left=0.25, right=0.25, top=0.4, bottom=0.4)
+    ws.print_options.horizontalCentered = True
 
     ws.sheet_view.showGridLines = False
     ws.print_options.gridLines  = False
@@ -44,8 +43,8 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
 
     # ── Шрифты ───────────────────────────────
     F = "Arial"
-    font_num       = Font(name=F, size=12, bold=True,  color=black)
-    font_title     = Font(name=F, size=20, bold=True,  color=black)
+    font_num       = Font(name=F, size=11, bold=True,  color=black)
+    font_title     = Font(name=F, size=18, bold=True,  color=black)
     font_date      = Font(name=F, size=10,             color=black)
     font_addr_bold = Font(name=F, size=10, bold=True,  color=black)
     font_addr      = Font(name=F, size=10,             color=black)
@@ -74,9 +73,11 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     def dbl_btm():
         return Border(bottom=Side(style="double", color=black))
 
-    # ── Колонки — широкая A для описаний, узкая B для сумм ──
-    ws.column_dimensions["A"].width = 72
-    ws.column_dimensions["B"].width = 14
+    # ── Колонки — подогнаны под Letter (8.5x11 с полями 0.4) ──
+    # Полезная ширина ~82 units. A=50 (описание), B=32 (клиент ближе к центру)
+    # Итого = 82, покрывает страницу без дыры справа
+    ws.column_dimensions["A"].width = 50
+    ws.column_dimensions["B"].width = 32
 
     # ── Парсинг полей ─────────────────────────
     def get_field(pattern, text):
@@ -99,8 +100,8 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
                 return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
         return raw, ""
 
-    def estimate_row_height(title, desc, col_width_chars=82):
-        """Оценка высоты строки под wrap_text"""
+    def estimate_row_height(title, desc, col_width_chars=55):
+        """Оценка высоты строки под wrap_text для колонки A=50 units"""
         lines = 1
         if desc:
             desc_lines = max(1, (len(desc) + col_width_chars - 1) // col_width_chars)
@@ -250,7 +251,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         cell_text = f"- {title}\n{desc}" if desc else f"- {title}"
         fill = gray_fill if i % 2 == 0 else white_fill
 
-        ws.row_dimensions[row].height = estimate_row_height(title, desc)
+        # НЕ задаём жёсткую высоту — Excel посчитает сам по wrap_text
         ws[f"A{row}"]               = cell_text
         ws[f"A{row}"].font          = font_item
         ws[f"A{row}"].fill          = fill
@@ -289,7 +290,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
             cell_text = f"- {title}\n{desc}" if desc else f"- {title}"
             fill = gray_fill if i % 2 == 0 else white_fill
 
-            ws.row_dimensions[row].height = estimate_row_height(title, desc)
+            # НЕ задаём жёсткую высоту — auto
             ws[f"A{row}"]               = cell_text
             ws[f"A{row}"].font          = font_item
             ws[f"A{row}"].fill          = fill
@@ -357,8 +358,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         ws[f"A{row}"].alignment = left_mid
         row += 1
         for note in notes_lines:
-            note_lines = max(1, (len(note) + 99) // 100)
-            ws.row_dimensions[row].height = max(18, note_lines * 15)
+            # НЕ задаём жёсткую высоту — auto по wrap_text
             ws[f"A{row}"]           = f"- {note}"
             ws[f"A{row}"].font      = font_note
             ws[f"A{row}"].alignment = Alignment(horizontal="left", vertical="top",
