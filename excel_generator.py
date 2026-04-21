@@ -17,11 +17,14 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
 
     from openpyxl.worksheet.page import PageMargins
     ws.page_setup.orientation = "portrait"
-    ws.page_setup.paperSize   = 1
+    ws.page_setup.paperSize   = 1       # 1 = Letter
     ws.page_setup.fitToPage   = True
-    ws.page_setup.fitToWidth  = 1
-    ws.page_setup.fitToHeight = 0
-    ws.page_margins = PageMargins(left=0.25, right=0.25, top=0.5, bottom=0.5)
+    ws.page_setup.fitToWidth  = 1       # всё влезает в 1 страницу по ширине
+    ws.page_setup.fitToHeight = 0       # по высоте — неограниченно (многостраничность)
+    ws.page_setup.scale       = None    # при fitToPage scale должен быть None
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_margins = PageMargins(left=0.5, right=0.5, top=0.5, bottom=0.5)
+    ws.print_options.horizontalCentered = True   # центрируем по горизонтали
 
     ws.sheet_view.showGridLines = False
     ws.print_options.gridLines  = False
@@ -81,9 +84,9 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         return Border(bottom=Side(style="medium", color=black))
 
     # ── Колонки ──────────────────────────────
-    # Делаем A чуть уже, B шире — чтобы клиент не улетал вправо
-    ws.column_dimensions["A"].width = 70
-    ws.column_dimensions["B"].width = 26
+    # A уже, B шире — чтобы клиентская инфа была ближе к центру листа
+    ws.column_dimensions["A"].width = 45
+    ws.column_dimensions["B"].width = 30
 
     # ── Парсинг ──────────────────────────────
     def get_field(pattern, text):
@@ -129,7 +132,16 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
             l.strip().lstrip("-*•").strip()
             for l in notes_match.group(1).strip().split("\n")
             if l.strip() and len(l.strip()) > 5
-        ][:8]
+        ][:6]  # оставляем место для двух обязательных нот
+
+    # Обязательные стандартные notes — всегда в конце
+    MANDATORY_NOTES = [
+        "Materials and additional work (outside of the scope of work) are paid separately. All receipts will be provided by the end of the work.",
+        "The estimate is valid for 30 days."
+    ]
+    for mn in MANDATORY_NOTES:
+        if mn not in notes_lines:
+            notes_lines.append(mn)
 
     est_num  = datetime.now().strftime("%y%m%d%H%M")
     date_now = datetime.now().strftime("%y/%m/%d")
@@ -326,10 +338,11 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"B{row}"].border        = thick_btm()
     row += 1
 
-    # ── DISCOUNT — одна строка как раньше ──
+    # ── DISCOUNT — формула в B, процент меняется прямо в ней ────
+    # Adam кликает на сумму в B, видит =-0.10*(B29+B30), меняет 0.10 → 0.15
     discount_row = row
     ws.row_dimensions[row].height = 20
-    ws[f"A{row}"]               = "Discount %10"
+    ws[f"A{row}"]               = "Discount (edit formula in B to change %)"
     ws[f"A{row}"].font          = font_sub
     ws[f"A{row}"].alignment     = left_mid
     ws[f"B{row}"]               = f"=-0.10*(B{subtotal_row}+B{mat_row})"
@@ -337,6 +350,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"B{row}"].alignment     = right_mid
     ws[f"B{row}"].number_format = "$#,##0.00"
     ws[f"B{row}"].border        = thick_btm()
+    ws[f"B{row}"].fill          = yellow_fill   # жёлтая заливка чтобы Adam видел что это редактируемое
     row += 1
 
     # ── TOTAL ────────────────────────────────
