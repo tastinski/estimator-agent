@@ -326,38 +326,13 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"B{row}"].border        = thick_btm()
     row += 1
 
-    # ── DISCOUNT — редактируемый процент ────
-    # Ячейка A с процентом отдельно, в B формула.
-    # Adam меняет процент в A — пересчёт автоматически.
+    # ── DISCOUNT — одна строка как раньше ──
     discount_row = row
     ws.row_dimensions[row].height = 20
-
-    # В колонке A — "Discount" + жёлтая ячейка с процентом сразу после
-    # Делаем через единый текст с процентом, но процент в именованной ячейке
-    # Для простоты ставим всё в A и процент в отдельную ячейку справа через формулу
-    ws[f"A{row}"]               = "Discount (edit % →)"
+    ws[f"A{row}"]               = "Discount %10"
     ws[f"A{row}"].font          = font_sub
     ws[f"A{row}"].alignment     = left_mid
-
-    # Процент вписываем в A но сразу после слова — не получится. Используем helper:
-    # Вместо этого — храним процент в специальной ячейке в конце документа,
-    # на неё ссылаемся через formula. Но проще: процент в ячейке A, а текст перед ним.
-    # Решение: процент в скрытой ячейке C{discount_row}, в B — формула
-    ws[f"C{discount_row}"] = 0.10  # 10% по умолчанию — редактируемое значение
-    ws[f"C{discount_row}"].number_format = "0%"
-    ws[f"C{discount_row}"].font          = font_pct
-    ws[f"C{discount_row}"].fill          = yellow_fill
-    ws[f"C{discount_row}"].alignment     = center_mid
-
-    # Разкрываем колонку C чтобы Adam видел процент
-    ws.column_dimensions["C"].hidden = False
-    ws.column_dimensions["C"].width  = 10
-
-    # Формула в A: "Discount [10%]:"
-    ws[f"A{row}"] = f'=CONCATENATE("Discount (",TEXT(C{discount_row},"0%")," — edit yellow cell →)")'
-
-    # Сумма discount в B
-    ws[f"B{row}"]               = f"=-C{discount_row}*(B{subtotal_row}+B{mat_row})"
+    ws[f"B{row}"]               = f"=-0.10*(B{subtotal_row}+B{mat_row})"
     ws[f"B{row}"].font          = font_sub
     ws[f"B{row}"].alignment     = right_mid
     ws[f"B{row}"].number_format = "$#,##0.00"
@@ -416,8 +391,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"A{row}"].font      = font_footer
     ws[f"A{row}"].alignment = center_mid
 
-    # ── Print area — включаем C чтобы процент дисконта печатался ──
-    ws.print_area = f"A1:C{row}"
+    ws.print_area = f"A1:B{row}"
 
     wb.save(filepath)
     return filepath
