@@ -175,15 +175,6 @@ COMMUNICATION STYLE:
 - Maximum response 3,500 tokens — never cut off mid-sentence
 
 ═══════════════════════════════════════
-═══════════════════════════════════════
-
-- Professional, concise, no fluff
-- English only (unless client writes in another language)
-- Never say you cannot access Dropbox, Monday, or email — system handles everything
-- Never ask for info that is already in the Monday card columns
-- Maximum response 3,500 tokens — never cut off mid-sentence
-
-═══════════════════════════════════════
 SYSTEM HANDLES AUTOMATICALLY:
 ═══════════════════════════════════════
 Excel generation, Dropbox upload, Monday card update (link column), Email sending via SendGrid, Photo retrieval from Dropbox."""
@@ -240,8 +231,8 @@ def is_estimate_request(message):
 async def run_pipeline(assistant_message, file_number="", known_phone=""):
     """
     Создаём Excel → загружаем в Dropbox → создаём карточки в Monday.
-    file_number — если есть (из Monday карточки), используется для синхронизации.
-    known_phone — если есть, ищем существующего клиента по телефону для реюза номера.
+    file_number — если есть (из фото или существующего клиента),
+    используется и в Excel (имя файла + номер на бланке) и в Dropbox папке.
     """
     from excel_generator import generate_estimate_excel as generate_pdf
     data        = extract_estimate_data(assistant_message)
@@ -260,7 +251,11 @@ async def run_pipeline(assistant_message, file_number="", known_phone=""):
                 file_number = existing["file_number"]
                 print(f"Повторный клиент по телефону: reusing number {file_number}")
 
-        pdf_path = generate_pdf(assistant_message, client_name, job_type)
+        # Передаём card_number в Excel — попадёт в имя файла И в номер на бланке
+        pdf_path = generate_pdf(
+            assistant_message, client_name, job_type,
+            card_number=file_number or None
+        )
 
         dropbox_url, used_number = upload_to_dropbox(
             pdf_path, client_name, job_type,
@@ -289,14 +284,21 @@ async def run_pipeline(assistant_message, file_number="", known_phone=""):
 
 async def run_pipeline_monday(assistant_message, client_name, item_id=None, file_number=""):
     """
-    Pipeline для Monday webhook. Использует file_number из карточки
-    чтобы положить Excel в существующую папку Dropbox (ту же что и карточка).
+    Pipeline для Monday webhook. file_number = card_number из Monday (text5__1).
+    Этот номер используется ВЕЗДЕ:
+    - имя Excel файла: '{file_number} {client_name} estimate.xlsx'
+    - номер на бланке Excel: #{file_number}
+    - папка Dropbox: '{file_number} {client_name}'
+    Один номер во всех трёх местах.
     """
     from excel_generator import generate_estimate_excel as generate_pdf
     data     = extract_estimate_data(assistant_message)
     job_type = data.get("job_type", "Job")
     try:
-        pdf_path = generate_pdf(assistant_message, client_name, job_type)
+        pdf_path = generate_pdf(
+            assistant_message, client_name, job_type,
+            card_number=file_number or None
+        )
         dropbox_url, used_number = upload_to_dropbox(
             pdf_path, client_name, job_type,
             file_number=file_number or None
