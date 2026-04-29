@@ -39,10 +39,15 @@ DIRTY_VALUES = ["na", "n/a", "unknown", "needed", "[needed]",
 # ─────────────────────────────────────────
 
 def _normalize(s):
-    """Убираем точки, тире, подчёркивания, лишние пробелы для нечёткого поиска"""
+    """Нормализация для нечёткого поиска: убираем точки/тире/подчёркивания,
+    схлопываем множественные пробелы, в нижний регистр, обрезаем края."""
     if not s:
         return ""
-    return _re.sub(r"[.\-_]", " ", s).lower().strip()
+    # Заменяем разделители на пробелы
+    s = _re.sub(r"[.\-_,]", " ", s)
+    # Схлопываем множественные пробелы
+    s = _re.sub(r"\s+", " ", s)
+    return s.lower().strip()
 
 
 def _clean_phone(raw):
@@ -142,14 +147,70 @@ def _generate_new_number(all_entries):
 # DROPBOX FOLDER SEARCH
 # ─────────────────────────────────────────
 
+def _find_folder_in_entries(all_entries, client_name, file_number):
+    """
+    Общий хелпер: ищет папку клиента в списке entries.
+    Приоритет: по номеру → по имени.
+    Возвращает (folder_path, folder_name, found_number) или (None, None, None).
+    Логирует ВСЁ что проверяет — чтобы видеть в Railway логах почему не находит.
+    """
+    print(f"DEBUG _find_folder: looking for client='{client_name}' number='{file_number}'", flush=True)
+    print(f"DEBUG _find_folder: total entries in Dropbox root = {len(all_entries)}", flush=True)
+
+    # 1. По номеру
+    if file_number:
+        for entry in all_entries:
+            if not hasattr(entry, "name"):
+                continue
+            num = _extract_number_from_folder(entry.name)
+            if num == file_number:
+                print(f"DEBUG ✅ FOUND by number: '{entry.name}'", flush=True)
+                return entry.path_display, entry.name, num
+        print(f"DEBUG ✗ no folder matched number='{file_number}'", flush=True)
+
+    # 2. По имени — точное совпадение
+    if client_name:
+        needle = _normalize(client_name)
+        print(f"DEBUG searching by name (exact): needle='{needle}'", flush=True)
+        for entry in all_entries:
+            if not hasattr(entry, "name"):
+                continue
+            name_part = _extract_name_from_folder(entry.name)
+            normalized = _normalize(name_part)
+            print(f"DEBUG check folder='{entry.name}' name_part='{name_part}' norm='{normalized}' exact_match={normalized == needle}", flush=True)
+            if normalized == needle:
+                num = _extract_number_from_folder(entry.name)
+                print(f"DEBUG ✅ FOUND by exact name: '{entry.name}' (number={num})", flush=True)
+                return entry.path_display, entry.name, num
+        print(f"DEBUG ✗ no exact match for name='{client_name}'", flush=True)
+
+    # 3. По имени — мягкое совпадение (substring)
+    # Покрывает случаи когда в карточке "Veronica P" а в папке "Veronica" (или наоборот).
+    # Сравниваем хотя бы по первому слову — должно совпасть и быть длиннее 2 символов
+    # чтобы не было ложных совпадений на инициалах.
+    if client_name:
+        needle = _normalize(client_name)
+        first_word = needle.split()[0] if needle.split() else ""
+        if len(first_word) >= 3:
+            print(f"DEBUG searching by name (fuzzy): first_word='{first_word}'", flush=True)
+            for entry in all_entries:
+                if not hasattr(entry, "name"):
+                    continue
+                name_part = _extract_name_from_folder(entry.name)
+                normalized = _normalize(name_part)
+                folder_first_word = normalized.split()[0] if normalized.split() else ""
+                # Матч если первое слово совпадает И одно имя содержится в другом
+                if folder_first_word == first_word and (needle in normalized or normalized in needle):
+                    num = _extract_number_from_folder(entry.name)
+                    print(f"DEBUG ✅ FOUND by fuzzy name: '{entry.name}' (number={num}) — '{needle}' ~ '{normalized}'", flush=True)
+                    return entry.path_display, entry.name, num
+            print(f"DEBUG ✗ no fuzzy match for name='{client_name}'", flush=True)
+
+    return None, None, None
+
+
 def find_client_folder(client_name, file_number=None):
-    """
-    Ищем папку клиента в Dropbox.
-    Приоритет:
-      1. По номеру (если передан file_number)
-      2. По имени клиента
-    Возвращает: (folder_path, folder_name, file_number) или (None, None, None)
-    """
+    """Ищем папку клиента в Dropbox. Возвращает (path, name, number) или (None, None, None)."""
     try:
         dbx = get_dbx()
 
@@ -159,31 +220,7 @@ def find_client_folder(client_name, file_number=None):
             dbx.files_create_folder_v2(DROPBOX_ROOT)
 
         all_entries = list_all_dropbox_entries(dbx, DROPBOX_ROOT)
-
-        # 1. По номеру
-        if file_number:
-            for entry in all_entries:
-                if not hasattr(entry, "name"):
-                    continue
-                num = _extract_number_from_folder(entry.name)
-                if num == file_number:
-                    print(f"Папка найдена по номеру {file_number}: {entry.name}")
-                    return entry.path_display, entry.name, num
-
-        # 2. По имени
-        if client_name:
-            needle = _normalize(client_name)
-            for entry in all_entries:
-                if not hasattr(entry, "name"):
-                    continue
-                folder_name_part = _extract_name_from_folder(entry.name)
-                if _normalize(folder_name_part) == needle:
-                    num = _extract_number_from_folder(entry.name)
-                    print(f"Папка найдена по имени '{client_name}': {entry.name}")
-                    return entry.path_display, entry.name, num
-
-        print(f"Папка не найдена для client='{client_name}' number='{file_number}'")
-        return None, None, None
+        return _find_folder_in_entries(all_entries, client_name, file_number)
 
     except Exception as e:
         print(f"find_client_folder error: {e}")
@@ -198,9 +235,9 @@ def find_client_folder(client_name, file_number=None):
 def upload_to_dropbox(file_path, client_name, job_type, file_number=None):
     """
     Загружаем estimate в Dropbox.
-    - Ищем существующую папку (по номеру, затем по имени)
-    - Нашли — кладём туда (с датой в имени файла чтобы не перезаписать)
-    - Не нашли — создаём новую с указанным или новым номером
+    - Ищем существующую папку (по номеру → по имени)
+    - Имя файла = '{number} {client_name} estimate.xlsx' (тот же номер что у папки)
+    - Файл перезаписывается если существует (один номер = один актуальный эстимейт)
 
     Возвращает: (shared_link_url, file_number)
     """
@@ -215,38 +252,11 @@ def upload_to_dropbox(file_path, client_name, job_type, file_number=None):
         all_entries = list_all_dropbox_entries(dbx, DROPBOX_ROOT)
 
         # Ищем существующую папку
-        folder_path = None
-        folder_name = None
-        found_number = None
+        folder_path, folder_name, found_number = _find_folder_in_entries(
+            all_entries, client_name, file_number
+        )
 
-        # 1. По номеру
-        if file_number:
-            for entry in all_entries:
-                if not hasattr(entry, "name"):
-                    continue
-                num = _extract_number_from_folder(entry.name)
-                if num == file_number:
-                    folder_path = entry.path_display
-                    folder_name = entry.name
-                    found_number = num
-                    print(f"Найдена папка по номеру: {folder_name}")
-                    break
-
-        # 2. По имени
-        if not folder_path and client_name:
-            needle = _normalize(client_name)
-            for entry in all_entries:
-                if not hasattr(entry, "name"):
-                    continue
-                folder_name_part = _extract_name_from_folder(entry.name)
-                if _normalize(folder_name_part) == needle:
-                    folder_path = entry.path_display
-                    folder_name = entry.name
-                    found_number = _extract_number_from_folder(entry.name)
-                    print(f"Найдена папка по имени: {folder_name}")
-                    break
-
-        # 3. Не нашли — создаём новую
+        # Не нашли — создаём новую
         if not folder_path:
             if not file_number:
                 file_number = _generate_new_number(all_entries)
@@ -254,22 +264,22 @@ def upload_to_dropbox(file_path, client_name, job_type, file_number=None):
             folder_path = f"{DROPBOX_ROOT}/{folder_name}"
             try:
                 dbx.files_create_folder_v2(folder_path)
-                print(f"Создана новая папка: {folder_name}")
+                print(f"Создана новая папка: {folder_name}", flush=True)
             except dropbox.exceptions.ApiError as e:
                 if "path/conflict" not in str(e):
                     raise
             found_number = file_number
 
-        # Имя файла с датой+временем — чтобы не перезаписывать предыдущие эстимейты
-        timestamp = datetime.now().strftime("%m%d-%H%M")
-        file_name = f"{client_name} estimate {timestamp}.xlsx"
+        # Имя файла = тот же номер что у папки. Перезаписывает старый эстимейт.
+        safe_name = (client_name or "Client").strip()
+        file_name = f"{found_number} {safe_name} estimate.xlsx"
         dropbox_path = f"{folder_path}/{file_name}"
 
         with open(file_path, "rb") as f:
             dbx.files_upload(f.read(), dropbox_path, mode=WriteMode.overwrite)
 
         url = _get_shared_link(dbx, dropbox_path)
-        print(f"Dropbox OK: {dropbox_path}")
+        print(f"Dropbox OK: {dropbox_path}", flush=True)
         return url, found_number
 
     except Exception as e:
@@ -296,7 +306,8 @@ def _get_shared_link(dbx, dropbox_path):
 def upload_photo_to_client_folder(photo_bytes, client_name, file_number=None, ext="jpg"):
     """
     Сохраняем клиентское фото в папку клиента в Dropbox.
-    Если папки нет — создаём. Имя файла с таймштампом чтоб не затирать.
+    Если папки нет — создаём. Имя файла с таймштампом чтоб не затирать
+    (фоток у клиента может быть много — это нормально).
     Возвращает file_number (чтобы Monday и Excel его использовали).
     """
     try:
@@ -309,33 +320,10 @@ def upload_photo_to_client_folder(photo_bytes, client_name, file_number=None, ex
 
         all_entries = list_all_dropbox_entries(dbx, DROPBOX_ROOT)
 
-        # Ищем существующую папку — по номеру, потом по имени
-        folder_path = None
-        folder_name = None
-        found_number = None
-
-        if file_number:
-            for entry in all_entries:
-                if not hasattr(entry, "name"):
-                    continue
-                num = _extract_number_from_folder(entry.name)
-                if num == file_number:
-                    folder_path = entry.path_display
-                    folder_name = entry.name
-                    found_number = num
-                    break
-
-        if not folder_path and client_name:
-            needle = _normalize(client_name)
-            for entry in all_entries:
-                if not hasattr(entry, "name"):
-                    continue
-                folder_name_part = _extract_name_from_folder(entry.name)
-                if _normalize(folder_name_part) == needle:
-                    folder_path = entry.path_display
-                    folder_name = entry.name
-                    found_number = _extract_number_from_folder(entry.name)
-                    break
+        # Ищем существующую папку через общий хелпер
+        folder_path, folder_name, found_number = _find_folder_in_entries(
+            all_entries, client_name, file_number
+        )
 
         # Не нашли — создаём новую
         if not folder_path:
@@ -345,19 +333,19 @@ def upload_photo_to_client_folder(photo_bytes, client_name, file_number=None, ex
             folder_path = f"{DROPBOX_ROOT}/{folder_name}"
             try:
                 dbx.files_create_folder_v2(folder_path)
-                print(f"Создана папка для фото: {folder_name}")
+                print(f"Создана папка для фото: {folder_name}", flush=True)
             except dropbox.exceptions.ApiError as e:
                 if "path/conflict" not in str(e):
                     raise
             found_number = file_number
 
-        # Имя фото с таймштампом
+        # Имя фото с таймштампом — чтобы не затирать предыдущие
         timestamp = datetime.now().strftime("%m%d-%H%M%S")
         photo_name = f"photo_{timestamp}.{ext}"
         photo_path = f"{folder_path}/{photo_name}"
 
         dbx.files_upload(photo_bytes, photo_path, mode=WriteMode.overwrite)
-        print(f"Фото сохранено: {photo_path}")
+        print(f"Фото сохранено: {photo_path}", flush=True)
 
         return found_number
 
