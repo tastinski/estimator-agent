@@ -6,9 +6,20 @@ import re
 import os
 
 
-def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str) -> str:
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    filename = f"estimate_{client_name.replace(' ', '_')}_{date_str}.xlsx"
+def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str, card_number: str = None) -> str:
+    """
+    Генерим Excel эстимейт.
+    card_number — номер из Monday карточки (text5__1) или папки Dropbox.
+    Если передан — используется в имени файла и в номере на бланке.
+    Если нет — fallback на datetime (но это не должно происходить в продакшене).
+    """
+    # Имя файла = тот же номер что у папки в Dropbox
+    if card_number:
+        safe_name = client_name.strip() or "Client"
+        filename = f"{card_number} {safe_name} estimate.xlsx"
+    else:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        filename = f"estimate_{client_name.replace(' ', '_')}_{date_str}.xlsx"
     filepath = f"/tmp/{filename}"
 
     wb = openpyxl.Workbook()
@@ -25,6 +36,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws.sheet_view.showGridLines = False
     ws.print_options.gridLines  = False
 
+    # Скрываем все колонки кроме A и B (C используется для редактируемого discount %)
     for col in "CDEFGHIJKLMNOPQRSTUVWXYZ":
         ws.column_dimensions[col].hidden = True
 
@@ -102,7 +114,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
             else:
                 labor_items.append((clean, cost_val))
 
-    # Notes
+    # Notes — только из текста агента, БЕЗ автоматических mandatory нотов
     notes_match = re.search(r"NOTES:(.*?)$", estimate_text, re.DOTALL | re.IGNORECASE)
     notes_lines = []
     if notes_match:
@@ -112,16 +124,8 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
             if l.strip() and len(l.strip()) > 5
         ][:8]
 
-    # Обязательные ноты
-    mandatory = [
-        "Materials and additional work (outside of the scope of work) are paid separately. All receipts will be provided.",
-        "The estimate is valid for 30 days."
-    ]
-    for mn in mandatory:
-        if not any(mn[:30] in n for n in notes_lines):
-            notes_lines.append(mn)
-
-    est_num  = datetime.now().strftime("%y%m%d%H%M")
+    # Номер на бланке = card_number из Monday/Dropbox
+    est_num  = card_number if card_number else datetime.now().strftime("%y%m%d%H%M")
     date_now = datetime.now().strftime("%d/%m/%y")
     row = 1
 
@@ -218,7 +222,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     # ТАБЛИЦА LABOR
     # ════════════════════════════════════════
 
-    # Заголовок
+    # Заголовок (С border — оставляем)
     ws.row_dimensions[row].height = 24
     ws[f"A{row}"]           = "Description"
     ws[f"A{row}"].font      = fnt(10, bold=True)
@@ -232,7 +236,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"B{row}"].border    = full()
     row += 1
 
-    # Labor строки
+    # Labor строки — БЕЗ borders (только зебра-заливка)
     labor_start = row
     for i, (desc, cost_val) in enumerate(labor_items):
         lines = max(1, len(desc) // 70 + 1)
@@ -243,13 +247,11 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         ws[f"A{row}"].font          = fnt(10)
         ws[f"A{row}"].fill          = fill
         ws[f"A{row}"].alignment     = LW
-        ws[f"A{row}"].border        = btm()
         ws[f"B{row}"]               = cost_val
         ws[f"B{row}"].font          = fnt(10)
         ws[f"B{row}"].fill          = fill
         ws[f"B{row}"].alignment     = RT
         ws[f"B{row}"].number_format = "$#,##0.00"
-        ws[f"B{row}"].border        = btm()
         row += 1
     labor_end = row - 1
 
@@ -263,6 +265,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     mat_end   = None
 
     if material_items:
+        # Заголовок (С border)
         ws.row_dimensions[row].height = 24
         ws[f"A{row}"]           = "Materials"
         ws[f"A{row}"].font      = fnt(10, bold=True)
@@ -276,6 +279,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         ws[f"B{row}"].border    = full()
         row += 1
 
+        # Materials строки — БЕЗ borders
         mat_start = row
         for i, (desc, cost_val) in enumerate(material_items):
             lines = max(1, len(desc) // 70 + 1)
@@ -286,13 +290,11 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
             ws[f"A{row}"].font          = fnt(10)
             ws[f"A{row}"].fill          = fill
             ws[f"A{row}"].alignment     = LW
-            ws[f"A{row}"].border        = btm()
             ws[f"B{row}"]               = cost_val
             ws[f"B{row}"].font          = fnt(10)
             ws[f"B{row}"].fill          = fill
             ws[f"B{row}"].alignment     = RT
             ws[f"B{row}"].number_format = "$#,##0.00"
-            ws[f"B{row}"].border        = btm()
             row += 1
         mat_end = row - 1
 
@@ -334,15 +336,17 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
     ws[f"B{row}"].border        = med()
     row += 1
 
-    # Discount %10 — РЕДАКТИРУЕМЫЙ
-    # Процент хранится прямо в формуле — меняй 0.10 на любое число
+    # Discount — РЕДАКТИРУЕМЫЙ ПРОЦЕНТ через скрытую ячейку C
+    # Адам меняет число в C — всё пересчитывается автоматически
+    # Discount применяется ТОЛЬКО к Subtotal Labor (не к materials)
     discount_row = row
     ws.row_dimensions[row].height = 22
-    ws[f"A{row}"]               = "Discount %10"
+    ws[f"C{row}"]               = 0.10  # ← редактируемый процент (10% по умолчанию)
+    ws[f"A{row}"]               = f'="Discount %"&TEXT(C{row}*100,"0")'
     ws[f"A{row}"].font          = fnt(11, bold=True)
     ws[f"A{row}"].alignment     = L
     ws[f"A{row}"].border        = med()
-    ws[f"B{row}"]               = f"=-0.10*(B{subtotal_labor_row}+B{subtotal_mat_row})"
+    ws[f"B{row}"]               = f"=-C{row}*B{subtotal_labor_row}"
     ws[f"B{row}"].font          = fnt(11, bold=True)
     ws[f"B{row}"].alignment     = R
     ws[f"B{row}"].number_format = "$#,##0.00"
@@ -374,7 +378,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str)
         row += 2
 
     # ════════════════════════════════════════
-    # NOTES
+    # NOTES (только из текста агента)
     # ════════════════════════════════════════
     if notes_lines:
         ws.row_dimensions[row].height = 18
