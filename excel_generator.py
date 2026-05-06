@@ -11,7 +11,14 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     Генерим Excel эстимейт.
     card_number — номер из Monday карточки (text5__1) или папки Dropbox.
     Если передан — используется в имени файла и в номере на бланке.
-    Если нет — fallback на datetime (но это не должно происходить в продакшене).
+
+    СКИДКА:
+    По умолчанию скидки НЕТ — строка Discount не рисуется вообще.
+    Скидка добавляется только если в estimate_text есть поле:
+        DISCOUNT: 10% on labor (-$63.00)
+        DISCOUNT: 15% on materials (-$12.00)
+        DISCOUNT: $200 flat (-$200.00)
+    AI сам считает сумму и кладёт её в скобках после описания.
     """
     # Имя файла = тот же номер что у папки в Dropbox
     if card_number:
@@ -32,12 +39,14 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     ws.page_setup.fitToPage    = True
     ws.page_setup.fitToWidth   = 1
     ws.page_setup.fitToHeight  = 0
-    ws.page_margins = PageMargins(left=0.25, right=0.25, top=0.4, bottom=0.4)
+    # Wide margins по умолчанию — печатается ровно и в Excel, и в Numbers
+    ws.page_margins = PageMargins(left=1.0, right=1.0, top=1.0, bottom=1.0)
+    ws.print_options.horizontalCentered = True
     ws.sheet_view.showGridLines = False
     ws.print_options.gridLines  = False
 
-    # Скрываем все колонки кроме A и B (C используется для редактируемого discount %)
-    for col in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+    # Скрываем только пустые правые колонки. C больше не используется — её не прячем.
+    for col in "DEFGHIJKLMNOPQRSTUVWXYZ":
         ws.column_dimensions[col].hidden = True
 
     # ── Цвета ────────────────────────────────
@@ -89,6 +98,23 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     location_val = get_field(r"LOCATION:\s*(.+)", estimate_text)
     timeline_val = get_field(r"TIMELINE:\s*(.+)", estimate_text)
 
+    # ── Парсинг скидки (опционально) ─────────────────
+    # Формат от AI: "DISCOUNT: <описание> (-$<сумма>)"
+    # Если поля нет — discount_amount остаётся 0, строка не рисуется.
+    discount_label  = ""
+    discount_amount = 0.0
+    discount_match  = re.search(r"DISCOUNT:\s*(.+)", estimate_text, re.IGNORECASE)
+    if discount_match:
+        discount_text = discount_match.group(1).strip()
+        # Ищем число в скобках, например "(-$63.00)" или "(-$200)"
+        amount_match = re.search(r"\(\s*-?\$?([\d,]+(?:\.\d+)?)", discount_text)
+        if amount_match:
+            discount_amount = float(amount_match.group(1).replace(",", ""))
+            # Лейбл = всё до открывающей скобки ("10% on labor", "$200 flat", и т.д.)
+            label_part = discount_text.split("(")[0].strip()
+            if label_part:
+                discount_label = f"Discount: {label_part}"
+
     # Парсим breakdown — разделяем labor и materials
     breakdown_match = re.search(
         r"BREAKDOWN:(.*?)(?:SUBTOTAL|TOTAL ESTIMATE|$)",
@@ -114,7 +140,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
             else:
                 labor_items.append((clean, cost_val))
 
-    # Notes — только из текста агента, БЕЗ автоматических mandatory нотов
+    # Notes — только из текста агента, лимит 3 (раньше было 8)
     notes_match = re.search(r"NOTES:(.*?)$", estimate_text, re.DOTALL | re.IGNORECASE)
     notes_lines = []
     if notes_match:
@@ -122,7 +148,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
             l.strip().lstrip("-*•").strip()
             for l in notes_match.group(1).strip().split("\n")
             if l.strip() and len(l.strip()) > 5
-        ][:8]
+        ][:3]
 
     # Номер на бланке = card_number из Monday/Dropbox
     est_num  = card_number if card_number else datetime.now().strftime("%y%m%d%H%M")
@@ -302,7 +328,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
         row += 1
 
     # ════════════════════════════════════════
-    # ИТОГИ С ФОРМУЛАМИ
+    # ИТОГИ
     # ════════════════════════════════════════
 
     # Subtotal Labor
@@ -336,30 +362,33 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     ws[f"B{row}"].border        = med()
     row += 1
 
-    # Discount — РЕДАКТИРУЕМЫЙ ПРОЦЕНТ через скрытую ячейку C
-    # Адам меняет число в C — всё пересчитывается автоматически
-    # Discount применяется ТОЛЬКО к Subtotal Labor (не к materials)
-    discount_row = row
-    ws.row_dimensions[row].height = 22
-    ws[f"C{row}"]               = 0.10  # ← редактируемый процент (10% по умолчанию)
-    ws[f"A{row}"]               = f'="Discount %"&TEXT(C{row}*100,"0")'
-    ws[f"A{row}"].font          = fnt(11, bold=True)
-    ws[f"A{row}"].alignment     = L
-    ws[f"A{row}"].border        = med()
-    ws[f"B{row}"]               = f"=-C{row}*B{subtotal_labor_row}"
-    ws[f"B{row}"].font          = fnt(11, bold=True)
-    ws[f"B{row}"].alignment     = R
-    ws[f"B{row}"].number_format = "$#,##0.00"
-    ws[f"B{row}"].border        = med()
-    row += 1
+    # Discount — РИСУЕМ ТОЛЬКО ЕСЛИ AI ДОБАВИЛ DISCOUNT в estimate_text
+    discount_row = None
+    if discount_amount > 0 and discount_label:
+        discount_row = row
+        ws.row_dimensions[row].height = 22
+        ws[f"A{row}"]               = discount_label
+        ws[f"A{row}"].font          = fnt(11, bold=True)
+        ws[f"A{row}"].alignment     = L
+        ws[f"A{row}"].border        = med()
+        # Готовое отрицательное число (не формула — надёжнее, никаких скрытых ячеек)
+        ws[f"B{row}"]               = -discount_amount
+        ws[f"B{row}"].font          = fnt(11, bold=True)
+        ws[f"B{row}"].alignment     = R
+        ws[f"B{row}"].number_format = "$#,##0.00"
+        ws[f"B{row}"].border        = med()
+        row += 1
 
-    # TOTAL
+    # TOTAL — формула учитывает скидку только если она реально нарисована
     ws.row_dimensions[row].height = 26
     ws[f"A{row}"]               = "TOTAL"
     ws[f"A{row}"].font          = fnt(12, bold=True, underline=True)
     ws[f"A{row}"].alignment     = L
     ws[f"A{row}"].border        = dbl()
-    ws[f"B{row}"]               = f"=B{subtotal_labor_row}+B{subtotal_mat_row}+B{discount_row}"
+    if discount_row:
+        ws[f"B{row}"] = f"=B{subtotal_labor_row}+B{subtotal_mat_row}+B{discount_row}"
+    else:
+        ws[f"B{row}"] = f"=B{subtotal_labor_row}+B{subtotal_mat_row}"
     ws[f"B{row}"].font          = fnt(12, bold=True, underline=True)
     ws[f"B{row}"].alignment     = R
     ws[f"B{row}"].number_format = "$#,##0.00"
@@ -378,7 +407,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
         row += 2
 
     # ════════════════════════════════════════
-    # NOTES (только из текста агента)
+    # NOTES (только из текста агента, максимум 3)
     # ════════════════════════════════════════
     if notes_lines:
         ws.row_dimensions[row].height = 18
