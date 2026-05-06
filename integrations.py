@@ -111,14 +111,17 @@ def compress_image_for_claude(photo_data, max_size=1568):
 # ─────────────────────────────────────────
 
 def _extract_number_from_folder(folder_name):
-    """Из имени папки '26042011 Maria Gonzalez' вытащить '26042011'"""
-    match = _re.match(r"^(\d{8})", folder_name)
+    """Из имени папки '26042011 Maria Gonzalez' вытащить '26042011'.
+    Поддерживает любую длину номера (8, 9, 10 цифр) — на случай опечаток
+    или нестандартных номеров введённых вручную."""
+    match = _re.match(r"^(\d+)\s", folder_name)
     return match.group(1) if match else None
 
 
 def _extract_name_from_folder(folder_name):
-    """Из '26042011 Maria Gonzalez' вытащить 'Maria Gonzalez'"""
-    match = _re.match(r"^\d{8}\s*(.+)$", folder_name)
+    """Из '26042011 Maria Gonzalez' вытащить 'Maria Gonzalez'.
+    Работает с номерами любой длины."""
+    match = _re.match(r"^\d+\s+(.+)$", folder_name)
     if match:
         return match.group(1).strip()
     # fallback для старых папок типа "041326-13-Maria Gonzalez"
