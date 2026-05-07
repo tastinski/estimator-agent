@@ -10,15 +10,18 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     """
     Генерим Excel эстимейт.
     card_number — номер из Monday карточки (text5__1) или папки Dropbox.
-    Если передан — используется в имени файла и в номере на бланке.
 
-    СКИДКА:
-    По умолчанию скидки НЕТ — строка Discount не рисуется вообще.
-    Скидка добавляется только если в estimate_text есть поле:
-        DISCOUNT: 10% on labor (-$63.00)
-        DISCOUNT: 15% on materials (-$12.00)
-        DISCOUNT: $200 flat (-$200.00)
-    AI сам считает сумму и кладёт её в скобках после описания.
+    СКИДКА — автоматическая Volume Discount on Labor:
+        Total < $10,000           → нет скидки, строка не рисуется
+        $10,000 ≤ Total < $17,000 → 5% на labor
+        Total ≥ $17,000            → 10% на labor
+
+    Где Total = Subtotal Labor + Subtotal Materials.
+    Скидка реализована формулой — если Adam изменит цену labor вручную,
+    скидка пересчитается автоматически в рамках того же тира.
+
+    Cross-tier (например, Adam поднял total с $9K до $11K руками) —
+    требует регенерации эстимейта.
     """
     # Имя файла = тот же номер что у папки в Dropbox
     if card_number:
@@ -45,7 +48,7 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     ws.sheet_view.showGridLines = False
     ws.print_options.gridLines  = False
 
-    # Скрываем только пустые правые колонки. C больше не используется — её не прячем.
+    # Скрываем только пустые правые колонки
     for col in "DEFGHIJKLMNOPQRSTUVWXYZ":
         ws.column_dimensions[col].hidden = True
 
@@ -98,23 +101,6 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     location_val = get_field(r"LOCATION:\s*(.+)", estimate_text)
     timeline_val = get_field(r"TIMELINE:\s*(.+)", estimate_text)
 
-    # ── Парсинг скидки (опционально) ─────────────────
-    # Формат от AI: "DISCOUNT: <описание> (-$<сумма>)"
-    # Если поля нет — discount_amount остаётся 0, строка не рисуется.
-    discount_label  = ""
-    discount_amount = 0.0
-    discount_match  = re.search(r"DISCOUNT:\s*(.+)", estimate_text, re.IGNORECASE)
-    if discount_match:
-        discount_text = discount_match.group(1).strip()
-        # Ищем число в скобках, например "(-$63.00)" или "(-$200)"
-        amount_match = re.search(r"\(\s*-?\$?([\d,]+(?:\.\d+)?)", discount_text)
-        if amount_match:
-            discount_amount = float(amount_match.group(1).replace(",", ""))
-            # Лейбл = всё до открывающей скобки ("10% on labor", "$200 flat", и т.д.)
-            label_part = discount_text.split("(")[0].strip()
-            if label_part:
-                discount_label = f"Discount: {label_part}"
-
     # Парсим breakdown — разделяем labor и materials
     breakdown_match = re.search(
         r"BREAKDOWN:(.*?)(?:SUBTOTAL|TOTAL ESTIMATE|$)",
@@ -140,7 +126,22 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
             else:
                 labor_items.append((clean, cost_val))
 
-    # Notes — только из текста агента, лимит 3 (раньше было 8)
+    # ── Tiered Volume Discount ───────────────
+    # Вычисляем тир на основе AI-цен (pre-discount total).
+    # < $10K → 0%, $10K-$17K → 5%, ≥ $17K → 10%.
+    # Если labor нулевой — скидка 0 (не от чего считать).
+    labor_total        = sum(cost for _, cost in labor_items)
+    materials_total    = sum(cost for _, cost in material_items)
+    pre_discount_total = labor_total + materials_total
+
+    discount_pct = 0
+    if labor_total > 0:
+        if pre_discount_total >= 17000:
+            discount_pct = 0.10
+        elif pre_discount_total >= 10000:
+            discount_pct = 0.05
+
+    # Notes — только из текста агента, лимит 3
     notes_match = re.search(r"NOTES:(.*?)$", estimate_text, re.DOTALL | re.IGNORECASE)
     notes_lines = []
     if notes_match:
@@ -248,7 +249,6 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     # ТАБЛИЦА LABOR
     # ════════════════════════════════════════
 
-    # Заголовок (С border — оставляем)
     ws.row_dimensions[row].height = 24
     ws[f"A{row}"]           = "Description"
     ws[f"A{row}"].font      = fnt(10, bold=True)
@@ -262,7 +262,6 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     ws[f"B{row}"].border    = full()
     row += 1
 
-    # Labor строки — БЕЗ borders (только зебра-заливка)
     labor_start = row
     for i, (desc, cost_val) in enumerate(labor_items):
         lines = max(1, len(desc) // 70 + 1)
@@ -291,7 +290,6 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     mat_end   = None
 
     if material_items:
-        # Заголовок (С border)
         ws.row_dimensions[row].height = 24
         ws[f"A{row}"]           = "Materials"
         ws[f"A{row}"].font      = fnt(10, bold=True)
@@ -305,7 +303,6 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
         ws[f"B{row}"].border    = full()
         row += 1
 
-        # Materials строки — БЕЗ borders
         mat_start = row
         for i, (desc, cost_val) in enumerate(material_items):
             lines = max(1, len(desc) // 70 + 1)
@@ -362,24 +359,26 @@ def generate_estimate_excel(estimate_text: str, client_name: str, job_type: str,
     ws[f"B{row}"].border        = med()
     row += 1
 
-    # Discount — РИСУЕМ ТОЛЬКО ЕСЛИ AI ДОБАВИЛ DISCOUNT в estimate_text
+    # Volume Discount on Labor — рисуем ТОЛЬКО если discount_pct > 0
+    # (т.е. pre_discount_total ≥ $10K). Иначе строки нет вообще.
     discount_row = None
-    if discount_amount > 0 and discount_label:
+    if discount_pct > 0:
         discount_row = row
+        pct_int = int(round(discount_pct * 100))
         ws.row_dimensions[row].height = 22
-        ws[f"A{row}"]               = discount_label
+        ws[f"A{row}"]               = f"Volume Discount on Labor ({pct_int}%)"
         ws[f"A{row}"].font          = fnt(11, bold=True)
         ws[f"A{row}"].alignment     = L
         ws[f"A{row}"].border        = med()
-        # Готовое отрицательное число (не формула — надёжнее, никаких скрытых ячеек)
-        ws[f"B{row}"]               = -discount_amount
+        # Формула — пересчитывается автоматически при изменении labor цен
+        ws[f"B{row}"]               = f"=-{discount_pct}*B{subtotal_labor_row}"
         ws[f"B{row}"].font          = fnt(11, bold=True)
         ws[f"B{row}"].alignment     = R
         ws[f"B{row}"].number_format = "$#,##0.00"
         ws[f"B{row}"].border        = med()
         row += 1
 
-    # TOTAL — формула учитывает скидку только если она реально нарисована
+    # TOTAL
     ws.row_dimensions[row].height = 26
     ws[f"A{row}"]               = "TOTAL"
     ws[f"A{row}"].font          = fnt(12, bold=True, underline=True)
