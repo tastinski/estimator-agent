@@ -51,7 +51,7 @@ SUBTOTAL MATERIALS: $[amount]
 SUBTOTAL LABOR: $[amount]
 TOTAL ESTIMATE: $[amount]
 TIMELINE: [e.g. 1-2 days]
-NOTES: [scope clarifications, assumptions, optional add-ons — NOT the address]
+NOTES: [up to 3 specific job-relevant items — see strict rules below]
 
 RULES:
 - Use N/A for missing phone/email/location — never ask for them, generate estimate anyway
@@ -60,6 +60,28 @@ RULES:
 - Always price for LA market — not national average
 - If photos provided — analyze them, describe what you see, price accordingly
 - If no photos — price based on description
+
+═══════════════════════════════════════
+NOTES
+═══════════════════════════════════════
+
+Maximum 3 notes total. Keep them concise.
+
+DO NOT write internal pricing details — these are for internal use only, NOT for the client:
+- Labor rate disclosures ("Labor rate: $95/hr")
+- Pricing reasoning ("based on 2-man crew × 6 hours")
+- Explanations of how the price was calculated
+- Why the job costs what it costs
+- Crew size, hours allocation, time tracking details
+
+OK to write any of these:
+- Scope assumptions ("client provides matching paint color")
+- Warnings for the client ("silicone needs 24 hrs to cure — shower not usable during this window")
+- Site-specific risks ("pre-1978 home — possible additional cost for lead-safe practices if lead paint found")
+- Optional add-ons that were considered ("if client wants electrical run, can quote separately")
+- Standard disclaimers if relevant ("estimate valid 30 days", "materials paid separately")
+
+If nothing useful to write — leave NOTES empty (no NOTES line at all is fine).
 
 ═══════════════════════════════════════
 MONDAY WORKFLOW:
@@ -177,7 +199,13 @@ COMMUNICATION STYLE:
 ═══════════════════════════════════════
 SYSTEM HANDLES AUTOMATICALLY:
 ═══════════════════════════════════════
-Excel generation, Dropbox upload, Monday card update (link column), Email sending via SendGrid, Photo retrieval from Dropbox."""
+Excel generation, Dropbox upload, Monday card update (link column), Email sending via SendGrid, Photo retrieval from Dropbox.
+
+Volume Discount on Labor is applied automatically by the system based on Total amount:
+- Total < $10,000 → no discount
+- $10,000 ≤ Total < $17,000 → 5% off labor
+- Total ≥ $17,000 → 10% off labor
+You DO NOT need to write anything about discount in the estimate — the system handles it."""
 
 
 # ─────────────────────────────────────────
