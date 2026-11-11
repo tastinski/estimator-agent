@@ -18,6 +18,11 @@ from integrations import (
 load_dotenv()
 
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+# Model is set in ONE place. To switch models later, either change the default below,
+# or add a CLAUDE_MODEL variable in Railway (no code change needed).
+MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
+
 conversations = {}
 init_database()
 
@@ -490,11 +495,10 @@ async def process_monday_request(item_id, client_name, job_type,
         system_prompt = SYSTEM_PROMPT_BASE + f"\n\nMarket prices from RAG: {prices}"
 
         kwargs = {
-            "model":       "claude-opus-4-6",
-            "max_tokens":  4000,
-            "temperature": 0,
-            "system":      system_prompt,
-            "messages":    conversations[user_key]
+            "model":      MODEL,
+            "max_tokens": 4000,
+            "system":     system_prompt,
+            "messages":   conversations[user_key]
         }
         if intent == "search":
             kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
@@ -548,11 +552,10 @@ async def process_request(user_id, user_message):
         system_prompt = SYSTEM_PROMPT_BASE + f"\n\nMarket prices from RAG: {prices}"
 
         kwargs = {
-            "model":       "claude-opus-4-6",
-            "max_tokens":  4000,
-            "temperature": 0,
-            "system":      system_prompt,
-            "messages":    conversations[user_id]
+            "model":      MODEL,
+            "max_tokens": 4000,
+            "system":     system_prompt,
+            "messages":   conversations[user_id]
         }
 
         if intent == "search":
@@ -602,9 +605,8 @@ async def process_photo(user_id, image_data, caption=""):
         system_prompt = SYSTEM_PROMPT_BASE + f"\n\nMarket prices from RAG: {prices}"
 
         response = client.messages.create(
-            model="claude-opus-4-6",
+            model=MODEL,
             max_tokens=4000,
-            temperature=0,
             system=system_prompt,
             messages=conversations[user_id]
         )
@@ -683,9 +685,8 @@ async def process_dropbox_photos(user_id, client_name, caption="", file_number="
         system_prompt = SYSTEM_PROMPT_BASE + f"\n\nMarket prices from RAG: {prices}"
 
         response = client.messages.create(
-            model="claude-opus-4-6",
+            model=MODEL,
             max_tokens=4000,
-            temperature=0,
             system=system_prompt,
             messages=conversations[user_id]
         )
