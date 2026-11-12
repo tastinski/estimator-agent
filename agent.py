@@ -1,6 +1,20 @@
 import os
 import re
 import base64
+import io
+
+# Image conversion: any photo format (HEIC, PNG, WEBP, TIFF, BMP, JPG...) -> JPEG for Claude.
+try:
+    from PIL import Image, ImageOps
+    PIL_AVAILABLE = True
+except Exception:
+    PIL_AVAILABLE = False
+    print("WARNING: Pillow not installed — photos will be sent without conversion")
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()  # enables iPhone HEIC/HEIF photos
+except Exception:
+    print("WARNING: pillow-heif not installed — HEIC photos will be skipped")
 from anthropic import Anthropic
 from dotenv import load_dotenv
 from rag import search_prices, init_database
@@ -22,6 +36,45 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 # Model is set in ONE place. To switch models later, either change the default below,
 # or add a CLAUDE_MODEL variable in Railway (no code change needed).
 MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
+MAX_TOKENS = 8000
+
+
+MAX_IMAGE_SIDE = 1568  # Claude's recommended max; also makes requests faster
+
+
+def detect_media_type(b64_data):
+    """Fallback: detect image type from base64 content."""
+    if b64_data.startswith("iVBORw0KGgo"):
+        return "image/png"
+    if b64_data.startswith("R0lGOD"):
+        return "image/gif"
+    if b64_data.startswith("UklGR"):
+        return "image/webp"
+    return "image/jpeg"
+
+
+def image_block(b64_data):
+    """
+    Turn any photo into an image block Claude accepts.
+    Converts HEIC/PNG/WEBP/TIFF/BMP/etc. to JPEG, fixes rotation, shrinks huge photos.
+    Returns None if the file can't be read as an image (it is skipped, the estimate continues).
+    """
+    if PIL_AVAILABLE:
+        try:
+            img = Image.open(io.BytesIO(base64.b64decode(b64_data)))
+            img = ImageOps.exif_transpose(img)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            jpeg_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": jpeg_b64}}
+        except Exception as e:
+            print(f"Photo skipped (cannot read as image): {e}")
+            return None
+    return {"type": "image", "source": {"type": "base64", "media_type": detect_media_type(b64_data), "data": b64_data}}
+
 
 conversations = {}
 init_database()
@@ -196,10 +249,10 @@ COMMUNICATION STYLE:
 ═══════════════════════════════════════
 
 - Professional, concise, no fluff
-- English only (unless client writes in another language)
+- Always respond in English, regardless of the language of the request, the notes, or the reference data
 - Never say you cannot access Dropbox, Monday, or email — system handles everything
 - Never ask for info that is already in the Monday card columns
-- Maximum response 3,500 tokens — never cut off mid-sentence
+- Keep photo analysis brief (1-2 lines per photo). ALWAYS finish the complete estimate format, including TOTAL ESTIMATE, TIMELINE and NOTES
 
 ═══════════════════════════════════════
 SYSTEM HANDLES AUTOMATICALLY:
@@ -463,14 +516,9 @@ async def process_monday_request(item_id, client_name, job_type,
                     )
                 })
                 for photo in photos:
-                    message_content.append({
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": photo["data"]
-                        }
-                    })
+                    block = image_block(photo["data"])
+                    if block:
+                        message_content.append(block)
                 print(f"Loaded {len(photos)} photos from Dropbox for {client_name}")
             else:
                 message_content.append({
@@ -496,7 +544,7 @@ async def process_monday_request(item_id, client_name, job_type,
 
         kwargs = {
             "model":      MODEL,
-            "max_tokens": 4000,
+            "max_tokens": MAX_TOKENS,
             "system":     system_prompt,
             "messages":   conversations[user_key]
         }
@@ -553,7 +601,7 @@ async def process_request(user_id, user_message):
 
         kwargs = {
             "model":      MODEL,
-            "max_tokens": 4000,
+            "max_tokens": MAX_TOKENS,
             "system":     system_prompt,
             "messages":   conversations[user_id]
         }
@@ -595,10 +643,10 @@ async def process_photo(user_id, image_data, caption=""):
         message_content = []
         if caption:
             message_content.append({"type": "text", "text": caption})
-        message_content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}
-        })
+        block = image_block(image_b64)
+        if not block:
+            return "❌ Can't read this photo. Please send it as JPG or PNG."
+        message_content.append(block)
         conversations[user_id].append({"role": "user", "content": message_content})
 
         prices        = search_prices(caption or "general handyman work")
@@ -606,7 +654,7 @@ async def process_photo(user_id, image_data, caption=""):
 
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4000,
+            max_tokens=MAX_TOKENS,
             system=system_prompt,
             messages=conversations[user_id]
         )
@@ -674,10 +722,9 @@ async def process_dropbox_photos(user_id, client_name, caption="", file_number="
 
         message_content = [{"type": "text", "text": instruction}]
         for photo in photos:
-            message_content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/jpeg", "data": photo["data"]}
-            })
+            block = image_block(photo["data"])
+            if block:
+                message_content.append(block)
 
         conversations[user_id].append({"role": "user", "content": message_content})
 
@@ -686,7 +733,7 @@ async def process_dropbox_photos(user_id, client_name, caption="", file_number="
 
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4000,
+            max_tokens=MAX_TOKENS,
             system=system_prompt,
             messages=conversations[user_id]
         )
